@@ -50,7 +50,27 @@ Run `benchmarks/run_baseline.py` on Qwen2.5-7B-Instruct-1M. Save numbers as the 
 
 ---
 
-## PR1 — KVQuant nuq2 (2-bit KV cache)
+## PR1a — AWQ INT4 weights ✅ DONE (2026-05-09)
+
+Quick-win path before vendoring KVQuant. The HELIX vision needs **GPU 1 free** for EM-LLM (PR5), so we needed a way to fit 128K on a single 3090.
+
+**FP8 attempt (rejected)**: `kv_cache_dtype=fp8` and `cortecs/Qwen2.5-7B-Instruct-1M-FP8-Dynamic` both produced garbage outputs (Chinese tokens, broken needle). Root cause: Ampere (sm_86) has no native FP8; vLLM's Marlin FP8 kernels work for memory but degrade correctness on this generation. Documented and skipped.
+
+**AWQ INT4 result** (`graelo/Qwen2.5-7B-Instruct-1M-AWQ`, TP=1, gmu=0.85):
+
+| ctx     | mem (GB) | throughput | elapsed | needle |
+|---------|----------|------------|---------|--------|
+|   4,000 |  21.73   |  3,272 t/s |  1.1 s  |   ✓    |
+|  32,000 |  22.34   |  3,450 t/s |  8.3 s  |   ✓    |
+| 128,000 |  22.34   |  1,822 t/s | 62.5 s  |   ✓    |
+
+Weights compressed 4× (14 → 3.5 GB), KV stays fp16, INT4 kernels are native sm_86. Output quality preserved across all context lengths.
+
+**Trade vs TP=2 fp16 baseline**: -33% throughput at 128K (1,822 vs 2,726 t/s). Worth it because GPU 1 is now free for retrieval, episodic store, JEPA decoder.
+
+---
+
+## PR1b — KVQuant nuq2 (2-bit KV cache, the original plan)
 
 **Goal**: 8× compression of KV cache via 2-bit non-uniform quantization with dense+sparse outliers.
 

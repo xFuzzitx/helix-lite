@@ -1,0 +1,44 @@
+{
+  "stage": "PR1-fp8-model",
+  "model": "graelo/Qwen2.5-7B-Instruct-1M-AWQ",
+  "tp": 1,
+  "max_ctx": 128000,
+  "gmu": 0.85,
+  "kv_dtype": "auto",
+  "ts": "20260509-093750",
+  "results": [
+    {
+      "ctx_target": 4000,
+      "ctx_actual": 3544,
+      "elapsed_s": 1.0878615379333496,
+      "throughput_tok_s": 3272.475288319378,
+      "mem_before_gb": 21.730230272,
+      "mem_after_gb": 21.730230272,
+      "kv_delta_gb": 0.0,
+      "needle_found": true,
+      "completion": "BANANA-7392."
+    },
+    {
+      "ctx_target": 32000,
+      "ctx_actual": 28451,
+      "elapsed_s": 8.251416444778442,
+      "throughput_tok_s": 3449.953131139579,
+      "mem_before_gb": 21.730230272,
+      "mem_after_gb": 22.340501504,
+      "kv_delta_gb": 0.6102712319999988,
+      "needle_found": true,
+      "completion": "BANANA-7392."
+    },
+    {
+      "ctx_target": 128000,
+      "ctx_actual": 113850,
+      "elapsed_s": 62.481520891189575,
+      "throughput_tok_s": 1822.394819714705,
+      "mem_before_gb": 22.340501504,
+      "mem_after_gb": 22.340501504,
+      "kv_delta_gb": 0.0,
+      "needle_found": true,
+      "completion": "BANANA-7392."
+    }
+  ]
+}

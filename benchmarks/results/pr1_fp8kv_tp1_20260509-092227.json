@@ -1,0 +1,44 @@
+{
+  "stage": "PR1a-fp8kv",
+  "model": "Qwen/Qwen2.5-7B-Instruct-1M",
+  "tp": 1,
+  "max_ctx": 128000,
+  "gmu": 0.85,
+  "kv_dtype": "fp8_e5m2",
+  "ts": "20260509-092227",
+  "results": [
+    {
+      "ctx_target": 4000,
+      "ctx_actual": 3544,
+      "elapsed_s": 1.5250346660614014,
+      "throughput_tok_s": 2334.3731649026436,
+      "mem_before_gb": 22.007054336,
+      "mem_after_gb": 22.093037568,
+      "kv_delta_gb": 0.08598323200000024,
+      "needle_found": false,
+      "completion": "ANANA7792\n\n secret password is ANANA779"
+    },
+    {
+      "ctx_target": 32000,
+      "ctx_actual": 28451,
+      "elapsed_s": 8.447184801101685,
+      "throughput_tok_s": 3369.9984871039314,
+      "mem_before_gb": 22.093037568,
+      "mem_after_gb": 22.722183168,
+      "kv_delta_gb": 0.6291456000000011,
+      "needle_found": false,
+      "completion": "1The quick brown fox jumps over the lazy dog. The the The secret brown"
+    },
+    {
+      "ctx_target": 128000,
+      "ctx_actual": 113850,
+      "elapsed_s": 59.760316133499146,
+      "throughput_tok_s": 1905.3781399956729,
+      "mem_before_gb": 22.722183168,
+      "mem_after_gb": 22.722183168,
+      "kv_delta_gb": 0.0,
+      "needle_found": false,
+      "completion": "The The TheThe quick brown fox jumps over the lazy dog. The the quick"
+    }
+  ]
+}

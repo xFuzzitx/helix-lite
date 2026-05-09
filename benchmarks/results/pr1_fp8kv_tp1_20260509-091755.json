@@ -1,0 +1,44 @@
+{
+  "stage": "PR1a-fp8kv",
+  "model": "Qwen/Qwen2.5-7B-Instruct-1M",
+  "tp": 1,
+  "max_ctx": 128000,
+  "gmu": 0.85,
+  "kv_dtype": "fp8",
+  "ts": "20260509-091755",
+  "results": [
+    {
+      "ctx_target": 4000,
+      "ctx_actual": 3544,
+      "elapsed_s": 1.5309977531433105,
+      "throughput_tok_s": 2325.2810088655715,
+      "mem_before_gb": 22.007054336,
+      "mem_after_gb": 22.093037568,
+      "kv_delta_gb": 0.08598323200000024,
+      "needle_found": false,
+      "completion": "20 in dog word: 2. The in dog word is 2"
+    },
+    {
+      "ctx_target": 32000,
+      "ctx_actual": 28451,
+      "elapsed_s": 8.672444343566895,
+      "throughput_tok_s": 3282.465573978165,
+      "mem_before_gb": 22.093037568,
+      "mem_after_gb": 22.722183168,
+      "kv_delta_gb": 0.6291456000000011,
+      "needle_found": false,
+      "completion": "The0lazy10dog020\ufffd\ufffd The0lazy11"
+    },
+    {
+      "ctx_target": 128000,
+      "ctx_actual": 113850,
+      "elapsed_s": 63.36032319068909,
+      "throughput_tok_s": 1797.1183583977174,
+      "mem_before_gb": 22.722183168,
+      "mem_after_gb": 22.722183168,
+      "kv_delta_gb": 0.0,
+      "needle_found": false,
+      "completion": "0 The secret password isglegle-7392."
+    }
+  ]
+}

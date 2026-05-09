@@ -1,0 +1,44 @@
+{
+  "stage": "PR1-fp8-model",
+  "model": "cortecs/Qwen2.5-7B-Instruct-1M-FP8-Dynamic",
+  "tp": 1,
+  "max_ctx": 128000,
+  "gmu": 0.92,
+  "kv_dtype": "auto",
+  "ts": "20260509-093231",
+  "results": [
+    {
+      "ctx_target": 4000,
+      "ctx_actual": 3544,
+      "elapsed_s": 1.3761062622070312,
+      "throughput_tok_s": 2587.0095193741718,
+      "mem_before_gb": 23.6470272,
+      "mem_after_gb": 23.6470272,
+      "kv_delta_gb": 0.0,
+      "needle_found": false,
+      "completion": ",/input\u6027\u4ef7/k/input\u6027\u4ef7/k/k/k/k/k/k/k/k/k/k"
+    },
+    {
+      "ctx_target": 32000,
+      "ctx_actual": 28451,
+      "elapsed_s": 8.703561782836914,
+      "throughput_tok_s": 3270.729927618348,
+      "mem_before_gb": 23.6470272,
+      "mem_after_gb": 24.25520128,
+      "kv_delta_gb": 0.6081740800000013,
+      "needle_found": false,
+      "completion": "/input\u6027\u4ef7/input\u6027\u4ef7/input\u6027\u4ef7/k/k/k/k/k/k/k/input\u6027\u4ef7/k"
+    },
+    {
+      "ctx_target": 128000,
+      "ctx_actual": 113850,
+      "elapsed_s": 63.573476791381836,
+      "throughput_tok_s": 1791.0928542362801,
+      "mem_before_gb": 24.25520128,
+      "mem_after_gb": 24.25520128,
+      "kv_delta_gb": 0.0,
+      "needle_found": false,
+      "completion": "/input\u6027\u4ef7 HOWEVER/k/input\u6027\u4ef7/input\u6027\u4ef7/input\u6027\u4ef7/input\u6027\u4ef7/input\u6027\u4ef7/input\u6027\u4ef7"
+    }
+  ]
+}
