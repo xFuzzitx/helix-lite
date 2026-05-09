@@ -8,13 +8,23 @@ Each PR is **independent and mergeable on its own**. Together they compose the f
 
 Run `benchmarks/run_baseline.py` on Qwen2.5-7B-Instruct-1M. Save numbers as the reference all later PRs are compared against.
 
-**Result** (`benchmarks/results/baseline_20260509-090458.json`):
+**Result TP=1** (`benchmarks/results/baseline_20260509-090458.json`):
 
 | ctx     | mem (GB) | KV (GB) | throughput   | needle |
 |---------|----------|---------|--------------|--------|
 |  4,000  |   21.67  |  0.08   |  2,791 t/s   |   ✓    |
 | 32,000  |   22.30  |  0.63   |  3,395 t/s   |   ✓    |
 | 128,000 |   FAIL   |  —      |  —           |   —    |
+
+**Result TP=2** (`benchmarks/results/baseline_20260509-090942.json`) — both 3090s, gmu=0.92:
+
+| ctx      | mem/GPU0 (GB) | KV Δ (GB) | throughput   | elapsed | needle |
+|----------|---------------|-----------|--------------|---------|--------|
+|   4,000  |     24.04     |   ~0      |  2,193 t/s   |  1.6 s  |   ✓    |
+|  32,000  |     24.65     |   0.61    |  3,969 t/s   |  7.2 s  |   ✓    |
+| 128,000  |     24.65     |   ~0      |  2,726 t/s   | 41.8 s  |   ✓    |
+
+(KV Δ near-zero at 128K means scratch was already pre-allocated; absolute KV is ~6 GB split across both GPUs.)
 
 **Settings** (vLLM 0.20.1, torch 2.11.0+cu130, sm_86):
 - `enforce_eager=True` (CUDA graphs segfault on sm_86 + FLASHINFER)
@@ -27,14 +37,16 @@ Run `benchmarks/run_baseline.py` on Qwen2.5-7B-Instruct-1M. Save numbers as the 
 - `dual_chunk_attention_config` removed from `config.json` (DCA unsupported in vLLM 0.20.1 v1 engine; backed up as `config.json.original`). Cost: model degrades >256K ctx; addressed in PR5.
 - `sparse_attention_config.json` renamed to `.disabled` (re-enable in PR2 with proper MInference path).
 
-**128K verdict** : VRAM-bound on a single 3090. KV scratch needs 6.84 GiB → leaves <500 MB for forward-pass activations → OOM on first generate. **This is the motivation for PR1**: KVQuant 2-bit shrinks 6.84 GB → 0.85 GB, freeing 6 GB margin.
+**128K verdict** :
+- Single 3090 (TP=1): VRAM-bound. KV scratch needs 6.84 GiB → leaves <500 MB for forward activations → OOM. Motivation for PR1.
+- Both 3090s (TP=2): works, 41.8 s prefill, 2,726 t/s effective. Throughput near-identical to TP=1 at 32K (no NCCL bottleneck visible at this scale, all-reduce is bandwidth-cheap relative to compute).
 
-**Acceptance** (revised to match feasibility):
-- [x] Model loads on GPU 0
-- [x] Generation works at 4K and 32K
-- [x] Needle-in-haystack passes at 32K
-- [x] Memory and throughput recorded
-- [ ] 128K — deferred until PR1 (8× KV compression makes it tractable)
+**Acceptance**:
+- [x] Model loads
+- [x] Generation works at 4K, 32K, 128K (TP=2)
+- [x] Needle-in-haystack passes at 32K and 128K (BANANA-7392 retrieved)
+- [x] Memory and throughput recorded for both TP=1 and TP=2
+- [ ] 1M and beyond — requires PR1 (KVQuant) and PR3 (Quest sparse decode)
 
 ---
 

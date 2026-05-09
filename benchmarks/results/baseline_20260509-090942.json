@@ -1,0 +1,43 @@
+{
+  "model": "Qwen/Qwen2.5-7B-Instruct-1M",
+  "tp": 2,
+  "max_ctx": 128000,
+  "gmu": 0.92,
+  "dtype": "float16",
+  "timestamp": "20260509-090942",
+  "results": [
+    {
+      "context_tokens_target": 4000,
+      "context_tokens_actual": 3544,
+      "elapsed_s": 1.6230740547180176,
+      "throughput_tok_s": 2193.368805108829,
+      "mem_used_gb_before": 24.037097472,
+      "mem_used_gb_after": 24.039194624,
+      "kv_cache_gb": 0.0020971520000010457,
+      "needle_found": true,
+      "completion_preview": "BANANA-7392."
+    },
+    {
+      "context_tokens_target": 32000,
+      "context_tokens_actual": 28451,
+      "elapsed_s": 7.172739267349243,
+      "throughput_tok_s": 3968.7766331593234,
+      "mem_used_gb_before": 24.039194624,
+      "mem_used_gb_after": 24.647368704,
+      "kv_cache_gb": 0.6081740800000013,
+      "needle_found": true,
+      "completion_preview": "BANANA-7392."
+    },
+    {
+      "context_tokens_target": 128000,
+      "context_tokens_actual": 113850,
+      "elapsed_s": 41.76767444610596,
+      "throughput_tok_s": 2726.1752422181085,
+      "mem_used_gb_before": 24.647368704,
+      "mem_used_gb_after": 24.647368704,
+      "kv_cache_gb": 0.0,
+      "needle_found": true,
+      "completion_preview": "BANANA-7392."
+    }
+  ]
+}

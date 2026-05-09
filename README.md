@@ -5,7 +5,7 @@ Goal: serve **Qwen2.5-7B-Instruct-1M** at effective 1M context with SOTA quality
 ## Status
 
 - [x] **Setup** — NVIDIA 595.71.05 + CUDA 13.0, torch 2.11.0+cu130, vLLM 0.20.1, FlashInfer 0.6.8
-- [x] **Baseline** — 4K @ 2,791 t/s ✓, 32K @ 3,395 t/s ✓ ([details](docs/PR_PLAN.md#pr0--baseline--done-2026-05-09))
+- [x] **Baseline** — TP=1 @ 32K (3,395 t/s), TP=2 @ 128K (2,726 t/s, NIAH ✓) ([details](docs/PR_PLAN.md#pr0--baseline--done-2026-05-09))
 - [ ] **PR1** — KVQuant nuq2 (2-bit KV, 8× compression) — unlocks 128K-1M
 - [ ] **PR2** — MInference Vertical-Slash (sparse prefill, ~10× at 1M)
 - [ ] **PR3** — Quest top-K page selection (decode)
