@@ -1,0 +1,23 @@
+{
+  "model": "Qwen/Qwen2.5-7B-Instruct-1M",
+  "gpu": 0,
+  "dtype": "float16",
+  "timestamp": "20260509-090339",
+  "results": [
+    {
+      "context_tokens_target": 4000,
+      "context_tokens_actual": 3544,
+      "elapsed_s": 1.2396621704101562,
+      "throughput_tok_s": 2871.7501307813027,
+      "mem_used_gb_before": 24.628494336,
+      "mem_used_gb_after": 24.712380416,
+      "kv_cache_gb": 0.0838860799999992,
+      "needle_found": true,
+      "completion_preview": "BANANA-7392."
+    },
+    {
+      "context_tokens_target": 32000,
+      "error": "EngineCore encountered an issue. See stack trace (above) for the root cause."
+    }
+  ]
+}

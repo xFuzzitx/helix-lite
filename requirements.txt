@@ -1,0 +1,49 @@
+# HELIX-Lite — pinned dependencies for reproducibility
+# Hardware: 2× RTX 3090 (Ampere sm_86)
+# CUDA: 12.4 (via PyTorch wheels)
+
+# --- Core inference engine ---
+# vLLM 0.6.4+ supports Qwen2.5, Ampere, and has KV-cache hooks we need
+vllm>=0.6.4,<0.7
+
+# --- Model + tokenizer ---
+transformers>=4.46.0,<4.50
+tokenizers>=0.20.0
+accelerate>=1.0.0
+sentencepiece
+protobuf
+
+# --- FlashAttention (FA3 needs Hopper, we use FA2 on Ampere) ---
+flash-attn>=2.6.0,<3
+# Note: flash-attn builds from source; if it fails, install via:
+#   pip install flash-attn==2.7.4.post1 --no-build-isolation
+
+# --- Quantization (PR1 — KVQuant) ---
+bitsandbytes>=0.44.0
+# KVQuant nuq2 itself is integrated via custom code in src/kvquant/
+
+# --- Datasets + benchmarks ---
+datasets>=3.0.0
+pandas>=2.0.0
+numpy>=1.26
+scipy
+
+# --- Logging + viz ---
+wandb>=0.18.0
+matplotlib
+rich
+tqdm
+
+# --- Testing ---
+pytest
+pytest-asyncio
+
+# --- Dev tools ---
+ipython
+jupyter
+
+# Note: PR-specific dependencies installed in their own steps:
+#   PR2 — MInference: `pip install minference` (after baseline)
+#   PR3 — Quest:      git clone + custom build
+#   PR4 — sinks:      no extra deps (modify attention masks)
+#   PR5 — EM-LLM:     `pip install em-llm` or build from github.com/em-llm

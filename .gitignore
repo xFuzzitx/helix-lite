@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual env (lives on /snapshots; symlinked here)
+.venv
+venv/
+*.egg
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs / temporary outputs (we keep results JSONs but not raw logs)
+*.log
+benchmarks/results/*.tmp
+
+# Local env overrides — track .env as the canonical template
+.env.local
