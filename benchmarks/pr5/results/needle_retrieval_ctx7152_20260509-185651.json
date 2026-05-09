@@ -1,0 +1,467 @@
+{
+  "model": "Qwen/Qwen2.5-7B-Instruct-1M",
+  "T": 7152,
+  "num_episodes": 47,
+  "num_needles": 8,
+  "rows": [
+    {
+      "top_m": 4,
+      "recall": 0.25,
+      "per_needle": [
+        {
+          "value": "NK-8808",
+          "depth": 0.10583732057416267,
+          "token_pos": 743,
+          "episode_idx": 5,
+          "top_idx": [
+            12,
+            21,
+            2,
+            5
+          ],
+          "hit": true
+        },
+        {
+          "value": "MU-4578",
+          "depth": 0.23106858054226476,
+          "token_pos": 1625,
+          "episode_idx": 10,
+          "top_idx": [
+            5,
+            12,
+            0,
+            40
+          ],
+          "hit": false
+        },
+        {
+          "value": "SE-5617",
+          "depth": 0.366347687400319,
+          "token_pos": 2581,
+          "episode_idx": 16,
+          "top_idx": [
+            0,
+            5,
+            1,
+            12
+          ],
+          "hit": false
+        },
+        {
+          "value": "ED-5104",
+          "depth": 0.48175438596491227,
+          "token_pos": 3396,
+          "episode_idx": 21,
+          "top_idx": [
+            0,
+            5,
+            35,
+            10
+          ],
+          "hit": false
+        },
+        {
+          "value": "TY-3407",
+          "depth": 0.5537161084529506,
+          "token_pos": 3904,
+          "episode_idx": 25,
+          "top_idx": [
+            5,
+            0,
+            35,
+            27
+          ],
+          "hit": false
+        },
+        {
+          "value": "KD-2208",
+          "depth": 0.6958851674641149,
+          "token_pos": 4906,
+          "episode_idx": 32,
+          "top_idx": [
+            5,
+            0,
+            10,
+            35
+          ],
+          "hit": false
+        },
+        {
+          "value": "XL-8735",
+          "depth": 0.7585964912280702,
+          "token_pos": 5350,
+          "episode_idx": 35,
+          "top_idx": [
+            5,
+            0,
+            35,
+            10
+          ],
+          "hit": true
+        },
+        {
+          "value": "TD-6796",
+          "depth": 0.9132695374800638,
+          "token_pos": 6440,
+          "episode_idx": 42,
+          "top_idx": [
+            1,
+            2,
+            12,
+            3
+          ],
+          "hit": false
+        }
+      ]
+    },
+    {
+      "top_m": 8,
+      "recall": 0.375,
+      "per_needle": [
+        {
+          "value": "NK-8808",
+          "depth": 0.10583732057416267,
+          "token_pos": 743,
+          "episode_idx": 5,
+          "top_idx": [
+            12,
+            21,
+            2,
+            5,
+            3,
+            19,
+            40,
+            1
+          ],
+          "hit": true
+        },
+        {
+          "value": "MU-4578",
+          "depth": 0.23106858054226476,
+          "token_pos": 1625,
+          "episode_idx": 10,
+          "top_idx": [
+            5,
+            12,
+            0,
+            40,
+            21,
+            1,
+            35,
+            27
+          ],
+          "hit": false
+        },
+        {
+          "value": "SE-5617",
+          "depth": 0.366347687400319,
+          "token_pos": 2581,
+          "episode_idx": 16,
+          "top_idx": [
+            0,
+            5,
+            1,
+            12,
+            2,
+            4,
+            3,
+            7
+          ],
+          "hit": false
+        },
+        {
+          "value": "ED-5104",
+          "depth": 0.48175438596491227,
+          "token_pos": 3396,
+          "episode_idx": 21,
+          "top_idx": [
+            0,
+            5,
+            35,
+            10,
+            7,
+            16,
+            27,
+            1
+          ],
+          "hit": false
+        },
+        {
+          "value": "TY-3407",
+          "depth": 0.5537161084529506,
+          "token_pos": 3904,
+          "episode_idx": 25,
+          "top_idx": [
+            5,
+            0,
+            35,
+            27,
+            10,
+            16,
+            12,
+            40
+          ],
+          "hit": false
+        },
+        {
+          "value": "KD-2208",
+          "depth": 0.6958851674641149,
+          "token_pos": 4906,
+          "episode_idx": 32,
+          "top_idx": [
+            5,
+            0,
+            10,
+            35,
+            32,
+            16,
+            27,
+            7
+          ],
+          "hit": true
+        },
+        {
+          "value": "XL-8735",
+          "depth": 0.7585964912280702,
+          "token_pos": 5350,
+          "episode_idx": 35,
+          "top_idx": [
+            5,
+            0,
+            35,
+            10,
+            27,
+            7,
+            16,
+            12
+          ],
+          "hit": true
+        },
+        {
+          "value": "TD-6796",
+          "depth": 0.9132695374800638,
+          "token_pos": 6440,
+          "episode_idx": 42,
+          "top_idx": [
+            1,
+            2,
+            12,
+            3,
+            4,
+            0,
+            21,
+            19
+          ],
+          "hit": false
+        }
+      ]
+    },
+    {
+      "top_m": 16,
+      "recall": 1.0,
+      "per_needle": [
+        {
+          "value": "NK-8808",
+          "depth": 0.10583732057416267,
+          "token_pos": 743,
+          "episode_idx": 5,
+          "top_idx": [
+            12,
+            21,
+            2,
+            5,
+            3,
+            19,
+            40,
+            1,
+            4,
+            13,
+            9,
+            15,
+            14,
+            20,
+            7,
+            31
+          ],
+          "hit": true
+        },
+        {
+          "value": "MU-4578",
+          "depth": 0.23106858054226476,
+          "token_pos": 1625,
+          "episode_idx": 10,
+          "top_idx": [
+            5,
+            12,
+            0,
+            40,
+            21,
+            1,
+            35,
+            27,
+            10,
+            2,
+            4,
+            3,
+            19,
+            7,
+            16,
+            42
+          ],
+          "hit": true
+        },
+        {
+          "value": "SE-5617",
+          "depth": 0.366347687400319,
+          "token_pos": 2581,
+          "episode_idx": 16,
+          "top_idx": [
+            0,
+            5,
+            1,
+            12,
+            2,
+            4,
+            3,
+            7,
+            35,
+            21,
+            40,
+            19,
+            27,
+            16,
+            42,
+            10
+          ],
+          "hit": true
+        },
+        {
+          "value": "ED-5104",
+          "depth": 0.48175438596491227,
+          "token_pos": 3396,
+          "episode_idx": 21,
+          "top_idx": [
+            0,
+            5,
+            35,
+            10,
+            7,
+            16,
+            27,
+            1,
+            4,
+            21,
+            3,
+            2,
+            12,
+            40,
+            32,
+            19
+          ],
+          "hit": true
+        },
+        {
+          "value": "TY-3407",
+          "depth": 0.5537161084529506,
+          "token_pos": 3904,
+          "episode_idx": 25,
+          "top_idx": [
+            5,
+            0,
+            35,
+            27,
+            10,
+            16,
+            12,
+            40,
+            32,
+            7,
+            1,
+            2,
+            3,
+            4,
+            25,
+            21
+          ],
+          "hit": true
+        },
+        {
+          "value": "KD-2208",
+          "depth": 0.6958851674641149,
+          "token_pos": 4906,
+          "episode_idx": 32,
+          "top_idx": [
+            5,
+            0,
+            10,
+            35,
+            32,
+            16,
+            27,
+            7,
+            12,
+            40,
+            4,
+            3,
+            2,
+            1,
+            21,
+            19
+          ],
+          "hit": true
+        },
+        {
+          "value": "XL-8735",
+          "depth": 0.7585964912280702,
+          "token_pos": 5350,
+          "episode_idx": 35,
+          "top_idx": [
+            5,
+            0,
+            35,
+            10,
+            27,
+            7,
+            16,
+            12,
+            4,
+            32,
+            1,
+            40,
+            3,
+            2,
+            42,
+            21
+          ],
+          "hit": true
+        },
+        {
+          "value": "TD-6796",
+          "depth": 0.9132695374800638,
+          "token_pos": 6440,
+          "episode_idx": 42,
+          "top_idx": [
+            1,
+            2,
+            12,
+            3,
+            4,
+            0,
+            21,
+            19,
+            40,
+            42,
+            5,
+            7,
+            34,
+            27,
+            31,
+            30
+          ],
+          "hit": true
+        }
+      ]
+    }
+  ],
+  "ts": "20260509-185651"
+}

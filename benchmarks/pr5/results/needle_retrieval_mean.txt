@@ -1,0 +1,41 @@
+loading Qwen/Qwen2.5-7B-Instruct-1M (bf16, sdpa) ...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|██████████| 4/4 [00:00<00:00, 6540.82it/s]
+Loading weights:   0%|          | 0/339 [00:00<?, ?it/s]Loading weights: 100%|██████████| 339/339 [00:00<00:00, 19935.35it/s]
+prompt: 7152 tokens, 8 needles
+running forward (output_hidden_states=True) ...
+  forward: 0.2s
+
+47 episodes built
+  KVEpisodeStore(num=47/4096, with_kv=0, dim=3584, dev=cuda:1, emb=29.4 MB, kv=0 MB)
+
+running 8 retrieval queries
+  top-M= 4  recall=0/8 (0%)
+    ✗ value='NK-8808'  depth=0.11  ep=  5  top=[0, 1, 3, 4]
+    ✗ value='MU-4578'  depth=0.23  ep= 10  top=[0, 1, 3, 4]
+    ✗ value='SE-5617'  depth=0.37  ep= 16  top=[0, 1, 3, 4]
+    ✗ value='ED-5104'  depth=0.48  ep= 21  top=[0, 1, 3, 4]
+    ✗ value='TY-3407'  depth=0.55  ep= 25  top=[0, 1, 3, 4]
+    ✗ value='KD-2208'  depth=0.70  ep= 32  top=[0, 1, 3, 4]
+    ✗ value='XL-8735'  depth=0.76  ep= 35  top=[0, 1, 3, 4]
+    ✗ value='TD-6796'  depth=0.91  ep= 42  top=[0, 1, 3, 4]
+  top-M= 8  recall=3/8 (38%)
+    ✓ value='NK-8808'  depth=0.11  ep=  5  top=[0, 1, 3, 4, 2, 5, 10, 16]
+    ✓ value='MU-4578'  depth=0.23  ep= 10  top=[0, 1, 3, 4, 2, 5, 10, 16]
+    ✓ value='SE-5617'  depth=0.37  ep= 16  top=[0, 1, 3, 4, 2, 5, 10, 16]
+    ✗ value='ED-5104'  depth=0.48  ep= 21  top=[0, 1, 3, 4, 2, 5, 10, 16]
+    ✗ value='TY-3407'  depth=0.55  ep= 25  top=[0, 1, 3, 4, 2, 5, 10, 16]
+    ✗ value='KD-2208'  depth=0.70  ep= 32  top=[0, 1, 3, 4, 2, 5, 10, 16]
+    ✗ value='XL-8735'  depth=0.76  ep= 35  top=[0, 1, 3, 4, 2, 5, 10, 16]
+    ✗ value='TD-6796'  depth=0.91  ep= 42  top=[0, 1, 3, 4, 2, 5, 10, 16]
+  top-M=16  recall=4/8 (50%)
+    ✓ value='NK-8808'  depth=0.11  ep=  5  top=[0, 1, 3, 4, 2, 5, 10, 16, 42, 25, 35, 22, 32, 27, 41, 28]
+    ✓ value='MU-4578'  depth=0.23  ep= 10  top=[0, 1, 3, 4, 2, 5, 10, 16, 22, 35, 7, 12, 11, 27, 42, 13]
+    ✓ value='SE-5617'  depth=0.37  ep= 16  top=[0, 1, 3, 4, 2, 5, 10, 16, 35, 22, 42, 27, 12, 11, 13, 26]
+    ✗ value='ED-5104'  depth=0.48  ep= 21  top=[0, 1, 3, 4, 2, 5, 10, 16, 22, 35, 27, 42, 25, 26, 11, 12]
+    ✗ value='TY-3407'  depth=0.55  ep= 25  top=[0, 1, 3, 4, 2, 5, 10, 16, 35, 22, 27, 42, 26, 7, 12, 11]
+    ✗ value='KD-2208'  depth=0.70  ep= 32  top=[0, 1, 3, 4, 2, 5, 10, 16, 22, 35, 42, 7, 12, 27, 11, 25]
+    ✓ value='XL-8735'  depth=0.76  ep= 35  top=[0, 1, 3, 4, 2, 5, 10, 16, 35, 22, 11, 27, 7, 12, 42, 26]
+    ✗ value='TD-6796'  depth=0.91  ep= 42  top=[0, 1, 3, 4, 2, 5, 10, 16, 7, 22, 11, 35, 12, 27, 26, 6]
+
+ saved /home/ssatanss/Documents/llm_research/helix-lite/benchmarks/pr5/results/needle_retrieval_ctx7152_20260509-185510.json
