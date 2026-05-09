@@ -9,7 +9,7 @@ Goal: serve **Qwen2.5-7B-Instruct-1M** at effective 1M context with SOTA quality
 - [x] **PR1a** — AWQ INT4 weights → 128K on a single 3090 with NIAH ✓ (frees GPU 1 for PR5)
 - [x] **PR1b** — nuq4 KV: math + scales + Triton kernels validated end-to-end (vLLM integration deferred, see `src/kvquant/vllm_integration.md`)
 - [ ] **PR1c** — KVQuant nuq2 (2-bit KV, 8× compression) — unlocks 1M+
-- [ ] **PR2** — MInference Vertical-Slash (sparse prefill, ~10× at 1M)
+- [ ] **PR2** — MInference Vertical-Slash — deferred (vLLM 0.20.1 lacks the merged kernels; details in `docs/PR_PLAN.md#pr2`)
 - [ ] **PR3** — Quest top-K page selection (decode)
 - [ ] **PR4** — StreamingLLM attention sinks
 - [ ] **PR5** — EM-LLM episodic store on GPU 1 (retrieval to 5M)

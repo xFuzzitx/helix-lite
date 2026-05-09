@@ -130,7 +130,23 @@ The decisive layer is **27 (last)**: V mean reconstruction error went 1.40 (v1) 
 
 ---
 
-## PR2 — MInference Vertical-Slash (sparse prefill)
+## PR2 — MInference Vertical-Slash ⏸️ DEFERRED (2026-05-09)
+
+**Investigation result**: blocked on vLLM 0.20.1 limitations. Three unrelated routes were considered:
+
+1. **Re-enable Qwen's pre-classified `sparse_attention_config.json`** (the file we'd renamed to `.disabled` during PR0). vLLM 0.20.1 only loads it when `dual_chunk_attention_config` (DCA) is present in the model config, but the v1 engine has no DCA-aware attention impl - so the config triggers `qwen2.py` to pass `layer_idx` + `dual_chunk_attention_config` into impls that don't accept them, crashing on init. Even if we patch the init signature to absorb the kwargs, none of the `v1/attention/backends/` impls actually consume them, so no sparse path activates.
+
+2. **Use vLLM's native MInference kernels**. The MInference repo claims its kernels were merged into vLLM via vllm-project/flash-attention#33 (April 2025), but the merge is in a vLLM version newer than 0.20.1 - the only sparse indexer present in our install is `sparse_attn_indexer.py` for DeepSeek V3.2, unrelated to MInference Vertical-Slash.
+
+3. **Use the standalone `pip install minference` library**. It targets HF `transformers`, not vLLM, so we'd lose paged KV cache, AWQ INT4 weights (PR1a), and the FlashInfer/FA backend. Net: smaller wins, more code to throw away on vLLM upgrade.
+
+**Decision**: defer PR2 until either (a) we upgrade vLLM ≥ 0.21 with the merged MInference kernels, or (b) we ship enough of PR3/PR5 that prefill speed becomes the bottleneck.
+
+The sparse pattern config Qwen ships (`sparse_attention_config.json.disabled` in our HF cache) is preserved untouched for the day we re-enable it.
+
+---
+
+## PR2-original-plan — MInference Vertical-Slash (sparse prefill)
 
 **Goal**: ~10× prefill speedup at 1M via dynamic sparse attention patterns (A-shape, Vertical-Slash, Block-Sparse) classified per-head offline.
 
