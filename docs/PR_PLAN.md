@@ -214,7 +214,23 @@ The sparse pattern config Qwen ships (`sparse_attention_config.json.disabled` in
 
 ---
 
-## PR5 — EM-LLM episodic store on GPU 1 (5M retrieval)
+## PR5a — EM-LLM scaffold ✅ (2026-05-09)
+
+Two self-contained modules backing the eventual GPU-1 episodic store, each unit-tested and exercised end-to-end on a real Qwen2 forward.
+
+`src/emllm/segmenter.py` — Bayesian-surprise segmenter. Online stream of logits, KL between consecutive distributions, adaptive quantile threshold over a recent window. min/max segment length floors and caps.
+
+`src/emllm/episode_store.py` — flat pool defaulting to `cuda:1`. Stores mean-pooled hidden states + token ranges, cached fp32 norms for cosine retrieval, top-K with cosine or dot metric.
+
+**Tests** (`src/emllm/tests/`): 11/11 passing.
+
+**Smoke test** (`benchmarks/pr5/smoke_segmenter.py`): synthetic 5-topic, 3.7K-token document streamed through Qwen2.5-7B-1M (bf16 + sdpa - fp16 produces NaN hidden states), 12 segments detected, **50%% top-1 self-recall**, intra-topic episodes cluster together (botany ep 0/1/2 mutual top-3, scores 0.89-0.92). Output preserved at `benchmarks/pr5/results/smoke_2026-05-09.txt`.
+
+**Findings worth keeping**:
+- Qwen2.5-7B-1M needs bf16 (not fp16) for any HF transformer hooks - residual-stream magnitudes overflow fp16 exponent range.
+- Cosine scoring on hidden_size=3584 fp16 dots also overflows; `EpisodeStore.topk` casts to fp32 internally.
+
+## PR5b — KV-chunk transfer & hot/cold attention swap (5M retrieval)
 
 **Goal**: Extend effective context to **5M tokens** via episodic memory + kNN retrieval. **GPU 1** hosts the entire episode store.
 
