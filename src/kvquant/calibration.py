@@ -66,8 +66,26 @@ def _build_calibration_prompts(tokenizer, cfg: CalibrationConfig) -> list[torch.
 
     if cfg.dataset == "wikitext":
         ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
-        all_text = "\n\n".join(s for s in ds["text"] if s.strip())
-        ids = tokenizer.encode(all_text, return_tensors="pt")[0]
+        # Tokenise in chunks to avoid the BatchEncoding tensor-size error
+        # the HF tokeniser hits on very long single strings.
+        all_ids: list[int] = []
+        chunk: list[str] = []
+        chunk_chars = 0
+        target_chars = 200_000  # ~50K tokens per chunk
+        for s in ds["text"]:
+            if not s.strip():
+                continue
+            chunk.append(s)
+            chunk_chars += len(s) + 2
+            if chunk_chars >= target_chars:
+                all_ids.extend(tokenizer.encode("\n\n".join(chunk)))
+                chunk = []
+                chunk_chars = 0
+            if len(all_ids) >= cfg.num_prompts * cfg.seqlen + cfg.seqlen:
+                break
+        if chunk:
+            all_ids.extend(tokenizer.encode("\n\n".join(chunk)))
+        ids = torch.tensor(all_ids, dtype=torch.long)
     else:
         raise ValueError(f"unsupported dataset: {cfg.dataset}")
 
