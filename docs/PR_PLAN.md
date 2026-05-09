@@ -70,7 +70,40 @@ Weights compressed 4× (14 → 3.5 GB), KV stays fp16, INT4 kernels are native s
 
 ---
 
-## PR1b — KVQuant nuq2 (2-bit KV cache, the original plan)
+## PR1b — KVQuant nuq* (KV cache quantization) ✅ MATH + KERNELS VALIDATED (2026-05-09)
+
+Status: math, scales and Triton kernels all proven correct end-to-end against HF transformers; vLLM-side integration is documented and deferred. See `src/kvquant/vllm_integration.md` for the integration plan.
+
+**Calibration**:
+- `src/kvquant/calibration.py` runs an HF Qwen2.5-7B-Instruct-1M forward over a calibration corpus (WikiText-2, 8 prompts × 2048 tokens), hooks `k_proj` and `v_proj` on every layer, and runs sklearn 1-D KMeans per scale group.
+- Per-channel scales for K (pre-RoPE), per-token scales for V (collapsed over head_dim).
+
+**Three calibration sweeps** (`scales/results/`):
+
+| sweep | num_bits | outlier_pct | result | notes                                |
+|-------|----------|-------------|--------|--------------------------------------|
+| v1    | 2        | 0.005       | FAIL   | output `'7392!B! The!! 1392!'`       |
+| v2    | 2        | 0.02        | FAIL   | output `' BAN!@!@!@!@!@!@'`          |
+| v3    | **4**    | 0.02        | **PASS** | output `' BANANA!7!3!9!2!'` — needle ✓ |
+
+The decisive layer is **27 (last)**: V mean reconstruction error went 1.40 (v1) → 0.97 (v2) → **0.18 (v3)**. Late-layer Values ride a much wider range than mid-stack and 4 levels can't represent them; 16 levels do.
+
+**What we ship**:
+- `src/kvquant/{nuq,scales,triton_kernels,calibration,validate_scales}.py`
+- `scales/qwen2_5_7b_1m_nuq4_v3.pt` — production scales (17 MB)
+- 4/4 Triton pack/unpack parity tests + 6/6 reference NUQ tests
+- `validate_scales.py` round-trip NIAH (needle preserved)
+
+**What we defer**:
+- vLLM `AttentionImpl` subclass + custom paged-block allocator → ~2 weeks of vLLM-internals plumbing, no new research, blocked on more pressing PRs (PR2 MInference and PR5 EM-LLM both unlock more user-visible value first).
+- nuq2 with sparse outlier kernels for the last layer (the only place where 2-bit drops below useful quality on Qwen2.5-7B-1M).
+
+**What we still get from PR1a + PR1b combined when integrated**:
+- AWQ-INT4 weights (3.5 GB) + nuq4 KV (~1.7 GB at 128K) ≈ 5.2 GB → headroom for 256K-512K on a single 3090.
+
+---
+
+## PR1c — KVQuant nuq2 (2-bit KV cache, the original plan)
 
 **Goal**: 8× compression of KV cache via 2-bit non-uniform quantization with dense+sparse outliers.
 
