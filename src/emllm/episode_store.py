@@ -93,9 +93,10 @@ class EpisodeStore:
                 f"expected emb_dim={self.emb_dim}"
             )
         idx = self.num_episodes
-        emb = embedding.to(device=self.device, dtype=self.dtype).reshape(self.emb_dim)
-        self.embeddings[idx].copy_(emb)
-        self.norms[idx] = emb.norm()
+        # Compute norm in fp32 to avoid fp16 overflow on hidden_size~3584 vecs
+        emb_fp32 = embedding.to(device=self.device, dtype=torch.float32).reshape(self.emb_dim)
+        self.embeddings[idx].copy_(emb_fp32.to(self.dtype))
+        self.norms[idx] = emb_fp32.norm().to(self.dtype)
         ep = Episode(index=idx, token_range=token_range, surprise=surprise)
         self.episodes.append(ep)
         return ep
@@ -116,12 +117,15 @@ class EpisodeStore:
         if self.num_episodes == 0:
             return []
         k = min(k, self.num_episodes)
-        q = query.to(device=self.device, dtype=self.dtype).reshape(self.emb_dim)
-        active = self.embeddings[: self.num_episodes]                    # (N, D)
+        # All scoring math in fp32: hidden_size=3584 fp16 dots overflow into
+        # NaN territory when the per-element activations are O(10).
+        q = query.to(device=self.device, dtype=torch.float32).reshape(self.emb_dim)
+        active = self.embeddings[: self.num_episodes].to(torch.float32)  # (N, D)
         scores = active @ q                                              # (N,)
         if metric == "cosine":
             q_norm = q.norm().clamp_min(1e-6)
-            scores = scores / (self.norms[: self.num_episodes].clamp_min(1e-6) * q_norm)
+            ep_norms = self.norms[: self.num_episodes].to(torch.float32).clamp_min(1e-6)
+            scores = scores / (ep_norms * q_norm)
         elif metric != "dot":
             raise ValueError(f"unknown metric: {metric}")
         top = torch.topk(scores, k=k, dim=0)

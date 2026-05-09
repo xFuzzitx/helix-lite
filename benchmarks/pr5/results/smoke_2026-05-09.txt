@@ -1,0 +1,31 @@
+loading model ...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|██████████| 4/4 [00:00<00:00, 3808.68it/s]
+Loading weights:   0%|          | 0/339 [00:00<?, ?it/s]Loading weights: 100%|██████████| 339/339 [00:00<00:00, 17116.10it/s]
+streamed prompt: 3746 tokens, 18949 chars
+store initialised: EpisodeStore(num=0/512, dim=3584, dev=cuda:1, mem=3.7 MB)
+forward pass: 0.2s
+
+detected 12 boundaries:
+  ep[ 0] tokens [   0,  256)  starts: '## Botany  Photosynthesis is the process by which green'
+  ep[ 1] tokens [ 256,  516)  starts: 'organisms transform light energy into chemical energy. Photo'
+  ep[ 2] tokens [ 516,  902)  starts: 'organisms transform light energy into chemical energy. Photo'
+  ep[ 3] tokens [ 902, 1286)  starts: 'greater than 1 that is not a product of two smaller'
+  ep[ 4] tokens [1286, 1550)  starts: 'oque era, regarded as one of the greatest composers of all'
+  ep[ 5] tokens [1550, 1814)  starts: 'oque era, regarded as one of the greatest composers of all'
+  ep[ 6] tokens [1814, 2083)  starts: 'oque era, regarded as one of the greatest composers of all'
+  ep[ 7] tokens [2083, 2344)  starts: 'emulsified. To make a basic vinaigrette'
+  ep[ 8] tokens [2344, 2722)  starts: 'emulsified. To make a basic vinaigrette'
+  ep[ 9] tokens [2722, 3021)  starts: 'ulsified. To make a basic vinaigrette,'
+  ep[10] tokens [3021, 3688)  starts: 'entanglement is a phenomenon where two or more particles bec'
+  ep[11] tokens [3688, 3746)  starts: 'entanglement is a phenomenon where two or more particles bec'
+
+EpisodeStore(num=12/512, dim=3584, dev=cuda:1, mem=3.7 MB)
+
+self-recall (query = hidden state at episode midpoint):
+  top-1 self-recall: 6/12 (50%)
+
+query from ep[0] -> top 3:
+  ep[1] tokens [256, 516) score=0.917
+  ep[0] tokens [0, 256) score=0.915
+  ep[2] tokens [516, 902) score=0.892
