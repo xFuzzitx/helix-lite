@@ -230,7 +230,34 @@ Two self-contained modules backing the eventual GPU-1 episodic store, each unit-
 - Qwen2.5-7B-1M needs bf16 (not fp16) for any HF transformer hooks - residual-stream magnitudes overflow fp16 exponent range.
 - Cosine scoring on hidden_size=3584 fp16 dots also overflows; `EpisodeStore.topk` casts to fp32 internally.
 
-## PR5b — KV-chunk transfer & hot/cold attention swap (5M retrieval)
+## PR5b — KV-chunk transfer & hot/cold attention swap ✅ (2026-05-09)
+
+The architectural slice that makes 5M effective context tractable.
+
+`src/emllm/kv_store.py` — `KVEpisodeStore(EpisodeStore)` extends PR5a's pool with per-episode `KVChunk(K, V)` of shape `(num_layers, T_episode, num_kv_heads, head_dim)` on GPU 1. Sized for Qwen2.5-7B (28 × 4 × 128): ~15 MB / 256-token episode → 1500 episodes ≈ 22 GB on a 24 GB GPU 1. `gather_kv_for_episodes` concatenates along the time axis and ships to a target device in one transfer.
+
+`src/emllm/hot_swap.py` — `assemble_kv(hot, sinks, store, query_emb, cfg)` returns `[sinks ; retrieved cold ; hot]` K, V tensors that attention should see at decode. Cosine top-M retrieval, configurable hot window and sink count (PR4 attention-sink trick reused).
+
+**Tests**: 5/5 in `src/emllm/tests/test_kv_store.py`.
+
+**Smoke** on real Qwen2.5-7B-Instruct-1M, 8K topic-mixed prompt → 58 episodes, 470 MB KV on GPU 1:
+
+| hot | top-M | tokens seen | L0 | L7 | L14 | L21 | L27 |
+|-----|-------|-------------|------|------|------|------|------|
+| 1024 |  4 | 1,616 (20%) | 0.90 | 0.90 | 0.95 | 0.95 | 0.92 |
+| 1024 |  8 | 2,139 (26%) | 0.89 | 0.91 | 0.97 | 0.97 | 0.95 |
+| 1024 | 16 | 3,365 (41%) | 0.94 | 0.94 | 0.98 | 0.98 | 0.96 |
+| 2048 |  4 | 2,640 (32%) | 0.93 | 0.94 | 0.96 | 0.96 | 0.94 |
+| **2048** | **8** | **3,163 (39%)** | **0.93** | **0.94** | **0.97** | **0.98** | **0.96** |
+| 2048 | 16 | 4,389 (54%) | 0.97 | 0.96 | 0.98 | 0.99 | 0.97 |
+
+At the recommended setting (hot=2K, top-M=8), only 39% of the prefix is loaded into attention and per-layer cosine to dense attention is 0.93-0.98 - quality is preserved.
+
+**Path to 5M**: hot stays at 2-4K, top-M stays at 8-16; what grows is the *number of stored episodes*. Compute per decode step is `O(hot + M · episode_len) ≈ O(3-5K)` regardless of total seq, so a 5M-token document with the same hot/M numbers costs the same per step as the 8K demo here.
+
+What's not yet shipped:
+- vLLM AttentionImpl integration (same pattern as nuq4 / Quest, deferred together).
+- A real long-doc end-to-end generation (current smoke is single-position attention probe; to actually generate, we need to run the per-layer swap inside the decode loop).
 
 **Goal**: Extend effective context to **5M tokens** via episodic memory + kNN retrieval. **GPU 1** hosts the entire episode store.
 

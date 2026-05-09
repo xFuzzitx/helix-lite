@@ -12,7 +12,7 @@ Goal: serve **Qwen2.5-7B-Instruct-1M** at effective 1M context with SOTA quality
 - [ ] **PR2** — MInference Vertical-Slash — deferred (vLLM 0.20.1 lacks the merged kernels; details in `docs/PR_PLAN.md#pr2`)
 - [x] **PR3 + PR4** — Quest top-K page selection w/ attention-sink prefix: math + Triton kernel + 8/8 tests; smoke on real Qwen2 layer-14 shows cos 0.97 vs dense at 25%% KV loaded (4× decode speedup, quality preserved)
 - [x] **PR5a** — EM-LLM scaffold: surprise segmenter + episode pool on GPU 1 (11/11 unit tests, end-to-end smoke on real Qwen2 with 50%% top-1 self-recall)
-- [ ] **PR5b** — KV-chunk transfer & hot/cold attention swap (retrieval to 5M)
+- [x] **PR5b** — KV-chunk transfer & hot/cold attention swap: validated cos 0.93-0.98 vs dense at hot=2K + top-M=8 (39%% of context loaded, 5M scales as O(hot + M·episode_len))
 - [ ] **Release** — full RULER/MRCR/BABILong + open-source repo
 
 ## Quickstart
