@@ -10,8 +10,7 @@ Goal: serve **Qwen2.5-7B-Instruct-1M** at effective 1M context with SOTA quality
 - [x] **PR1b** — nuq4 KV: math + scales + Triton kernels validated end-to-end (vLLM integration deferred, see `src/kvquant/vllm_integration.md`)
 - [ ] **PR1c** — KVQuant nuq2 (2-bit KV, 8× compression) — unlocks 1M+
 - [ ] **PR2** — MInference Vertical-Slash — deferred (vLLM 0.20.1 lacks the merged kernels; details in `docs/PR_PLAN.md#pr2`)
-- [ ] **PR3** — Quest top-K page selection (decode)
-- [ ] **PR4** — StreamingLLM attention sinks
+- [x] **PR3 + PR4** — Quest top-K page selection w/ attention-sink prefix: math + Triton kernel + 8/8 tests (vLLM integration follows nuq4 pattern)
 - [x] **PR5a** — EM-LLM scaffold: surprise segmenter + episode pool on GPU 1 (11/11 unit tests, end-to-end smoke on real Qwen2 with 50%% top-1 self-recall)
 - [ ] **PR5b** — KV-chunk transfer & hot/cold attention swap (retrieval to 5M)
 - [ ] **Release** — full RULER/MRCR/BABILong + open-source repo
