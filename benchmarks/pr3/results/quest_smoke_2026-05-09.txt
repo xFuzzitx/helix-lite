@@ -1,0 +1,19 @@
+loading model Qwen/Qwen2.5-7B-Instruct-1M (bf16, sdpa) ...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|██████████| 4/4 [00:00<00:00, 4182.80it/s]
+Loading weights:   0%|          | 0/339 [00:00<?, ?it/s]Loading weights: 100%|██████████| 339/339 [00:00<00:00, 16597.24it/s]
+prompt: 8192 tokens
+heads: q=28, kv=4, head_dim=128
+running forward ...
+forward: 0.2s
+captured Q=(8192, 28, 128), K=(8192, 4, 128), V=(8192, 4, 128)
+pages: 512 of size 16
+
+running Quest at top-K fractions: [0.05, 0.1, 0.25, 0.5, 1.0]
+  frac=0.05  k=  25  kv_load=  416/8191  (  5.1%)  cos[mean,min]=[0.851, 0.754]
+  frac=0.10  k=  51  kv_load=  832/8191  ( 10.2%)  cos[mean,min]=[0.915, 0.864]
+  frac=0.25  k= 128  kv_load= 2064/8191  ( 25.2%)  cos[mean,min]=[0.974, 0.959]
+  frac=0.50  k= 256  kv_load= 4112/8191  ( 50.2%)  cos[mean,min]=[0.994, 0.988]
+  frac=1.00  k= 512  kv_load= 8208/8191  (100.2%)  cos[mean,min]=[1.000, 1.000]
+
+ saved /home/ssatanss/Documents/llm_research/helix-lite/benchmarks/pr3/results/quest_smoke_layer14_ctx8192_20260509-134949.json
