@@ -1,0 +1,25 @@
+loading Qwen/Qwen2.5-7B-Instruct-1M (bf16, sdpa) ...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|██████████| 4/4 [00:00<00:00, 4517.29it/s]
+Loading weights:   0%|          | 0/339 [00:00<?, ?it/s]Loading weights: 100%|██████████| 339/339 [00:00<00:00, 18112.52it/s]
+layers=28, q_heads=28, kv_heads=4, head_dim=128
+prompt: 8192 tokens
+running forward (output_hidden_states=True for embeddings) ...
+forward: 0.2s
+K_all: (28, 8192, 4, 128)
+
+built 58 episodes
+  KVEpisodeStore(num=58/4096, with_kv=58, dim=3584, dev=cuda:1, emb=29.4 MB, kv=470 MB)
+
+probing layers: [0, 7, 14, 21, 27]
+
+  hot   M     tokens  per-layer cos[mean]
+  ------------------------------------------------------------------------------
+   1024   4      1,616  L0:0.899  L7:0.900  L14:0.946  L21:0.952  L27:0.916
+   1024   8      2,139  L0:0.892  L7:0.906  L14:0.966  L21:0.969  L27:0.950
+   1024  16      3,365  L0:0.944  L7:0.939  L14:0.978  L21:0.982  L27:0.963
+   2048   4      2,640  L0:0.930  L7:0.937  L14:0.957  L21:0.964  L27:0.938
+   2048   8      3,163  L0:0.927  L7:0.938  L14:0.973  L21:0.980  L27:0.964
+   2048  16      4,389  L0:0.969  L7:0.961  L14:0.983  L21:0.989  L27:0.974
+
+ saved /home/ssatanss/Documents/llm_research/helix-lite/benchmarks/pr5/results/em_swap_ctx8192_20260509-151502.json

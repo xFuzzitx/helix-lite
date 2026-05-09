@@ -18,5 +18,16 @@ Components:
 """
 from .segmenter import BayesianSurpriseSegmenter
 from .episode_store import EpisodeStore, Episode
+from .kv_store import KVEpisodeStore, KVChunk
+from .hot_swap import HotSwapConfig, SwapResult, assemble_kv
 
-__all__ = ["BayesianSurpriseSegmenter", "EpisodeStore", "Episode"]
+__all__ = [
+    "BayesianSurpriseSegmenter",
+    "EpisodeStore",
+    "Episode",
+    "KVEpisodeStore",
+    "KVChunk",
+    "HotSwapConfig",
+    "SwapResult",
+    "assemble_kv",
+]
