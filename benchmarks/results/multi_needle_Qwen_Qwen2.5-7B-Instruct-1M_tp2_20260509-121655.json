@@ -1,0 +1,113 @@
+{
+  "stage": "multi-needle",
+  "model": "Qwen/Qwen2.5-7B-Instruct-1M",
+  "tp": 2,
+  "gmu": 0.92,
+  "num_needles": 8,
+  "seed": 0,
+  "ts": "20260509-121655",
+  "results": [
+    {
+      "ctx_target": 32000,
+      "ctx_actual": 28691,
+      "elapsed_s": 10.306679725646973,
+      "recall": 1.0,
+      "found": 8,
+      "total": 8,
+      "needles": [
+        {
+          "value": "SE-5617",
+          "depth": 0.1476388823148893,
+          "found": true
+        },
+        {
+          "value": "ED-5104",
+          "depth": 0.19826919739354065,
+          "found": true
+        },
+        {
+          "value": "TY-3407",
+          "depth": 0.36383143213265806,
+          "found": true
+        },
+        {
+          "value": "KD-2208",
+          "depth": 0.4493065745254887,
+          "found": true
+        },
+        {
+          "value": "XL-8735",
+          "depth": 0.5069579211435604,
+          "found": true
+        },
+        {
+          "value": "TD-6796",
+          "depth": 0.6886369732254145,
+          "found": true
+        },
+        {
+          "value": "PL-4350",
+          "depth": 0.7676590776415645,
+          "found": true
+        },
+        {
+          "value": "TR-8253",
+          "depth": 0.9213723355579748,
+          "found": true
+        }
+      ],
+      "completion_preview": "A1: SE-5617\nA2: ED-5104\nA3: TY-3407\nA4: KD-2208\nA5: XL-8735\nA6: highway TD-6796\nA7: PL-4350\nA8: TR-8253"
+    },
+    {
+      "ctx_target": 128000,
+      "ctx_actual": 114628,
+      "elapsed_s": 46.99545621871948,
+      "recall": 1.0,
+      "found": 8,
+      "total": 8,
+      "needles": [
+        {
+          "value": "SE-5617",
+          "depth": 0.14764019249670102,
+          "found": true
+        },
+        {
+          "value": "ED-5104",
+          "depth": 0.1982704273223145,
+          "found": true
+        },
+        {
+          "value": "TY-3407",
+          "depth": 0.3638348193483462,
+          "found": true
+        },
+        {
+          "value": "KD-2208",
+          "depth": 0.44931298726216906,
+          "found": true
+        },
+        {
+          "value": "XL-8735",
+          "depth": 0.5069582310351984,
+          "found": true
+        },
+        {
+          "value": "TD-6796",
+          "depth": 0.6886358029767289,
+          "found": true
+        },
+        {
+          "value": "PL-4350",
+          "depth": 0.7676589096291423,
+          "found": true
+        },
+        {
+          "value": "TR-8253",
+          "depth": 0.9213723808740666,
+          "found": true
+        }
+      ],
+      "completion_preview": "A1: SE-5617\nA2: ED-5104\nA3: TY-3407\nA4: KD-2208\nA5: XL-8735\nA6: highway TD-6796\nA7: PL-4350\nA8: TR-8253"
+    }
+  ]
+}
