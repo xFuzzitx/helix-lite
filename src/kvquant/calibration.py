@@ -279,6 +279,8 @@ if __name__ == "__main__":
     p.add_argument("--num-prompts", type=int, default=8)
     p.add_argument("--seqlen", type=int, default=2048)
     p.add_argument("--num-bits", type=int, default=2)
+    p.add_argument("--outlier-pct", type=float, default=0.005,
+                   help="quantile for outlier band (default 0.5 %% per side)")
     p.add_argument("--out", default="scales/qwen2_5_7b_1m_nuq2.pt")
     p.add_argument("--progress-log", default="scales/calibration.log")
     p.add_argument("--kmeans-subsample", type=int, default=2000)
@@ -288,6 +290,7 @@ if __name__ == "__main__":
         num_prompts=args.num_prompts,
         seqlen=args.seqlen,
         num_bits=args.num_bits,
+        outlier_pct=args.outlier_pct,
         output_path=args.out,
         progress_log_path=args.progress_log,
         kmeans_subsample=args.kmeans_subsample,
