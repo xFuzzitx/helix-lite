@@ -19,7 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from kvquant.nuq import quantize_nuq
 from kvquant.triton_kernels import (
     pack_keys_per_channel,
+    pack_values_per_token,
     unpack_keys_per_channel,
+    unpack_values_per_token,
 )
 
 
@@ -78,6 +80,43 @@ def test_codes_in_range() -> None:
     assert codes.min().item() >= 0
 
 
+def _make_calibrated_inputs_per_token(T: int, D: int, seed: int = 0):
+    """Build a (T, D) input plus per-token poles/thresholds (Values style)."""
+    torch.manual_seed(seed)
+    values = torch.randn(T, D, dtype=torch.float16, device="cuda")
+    fp32_vals = values.float()
+    qs = torch.tensor([0.125, 0.375, 0.625, 0.875], device="cuda")
+    poles = torch.empty(T, 4, dtype=torch.float16, device="cuda")
+    upper = torch.empty(T, dtype=torch.float16, device="cuda")
+    lower = torch.empty(T, dtype=torch.float16, device="cuda")
+    for t in range(T):
+        row = fp32_vals[t]
+        poles[t] = row.quantile(qs).to(torch.float16)
+        upper[t] = row.quantile(0.99).to(torch.float16)
+        lower[t] = row.quantile(0.01).to(torch.float16)
+    return values, poles, upper, lower
+
+
+def test_per_token_pack_unpack_roundtrip_matches_reference() -> None:
+    T, D = 64, 128
+    values, poles, upper, lower = _make_calibrated_inputs_per_token(T, D)
+    codes, outlier_v, outlier_m = pack_values_per_token(values, poles, upper, lower)
+    triton_recon = unpack_values_per_token(codes, outlier_v, outlier_m, poles)
+
+    # Reference: poles broadcast across head_dim, thresholds same.
+    poles_b = poles.unsqueeze(1).expand(T, D, 4)         # (T, D, 4)
+    upper_b = upper.unsqueeze(1).expand(T, D)
+    lower_b = lower.unsqueeze(1).expand(T, D)
+    ref_recon, ref_mask = quantize_nuq(values, poles_b, upper_b, lower_b)
+
+    diff = (triton_recon.float() - ref_recon.float()).abs()
+    max_err = diff.max().item()
+    assert max_err < 5e-3, f"per-token max diff {max_err:.3e}"
+    triton_mask = (outlier_m != 0)
+    mismatch = (triton_mask != ref_mask).sum().item()
+    assert mismatch == 0, f"{mismatch} per-token outlier-mask mismatches"
+
+
 def test_outlier_path_preserves_value_bit_for_bit() -> None:
     T, D = 16, 32
     values, poles, upper, lower = _make_calibrated_inputs(T, D)
@@ -100,6 +139,8 @@ if __name__ == "__main__":
         ("codes_in_range", test_codes_in_range),
         ("outlier_path_preserves_value_bit_for_bit",
          test_outlier_path_preserves_value_bit_for_bit),
+        ("per_token_pack_unpack_roundtrip_matches_reference",
+         test_per_token_pack_unpack_roundtrip_matches_reference),
     ]
     fails = 0
     for name, fn in tests:

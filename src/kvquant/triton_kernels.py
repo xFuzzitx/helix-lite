@@ -192,3 +192,148 @@ def unpack_keys_per_channel(
         BLOCK_T=BLOCK_T, BLOCK_D=BLOCK_D,
     )
     return out
+
+
+# -- Pack/Unpack: per-token (Values) ---------------------------------------
+# Values share scales along head_dim within each token slot, so the
+# kernel structure mirrors the per-channel one with T and D swapped in
+# the broadcast pattern: thresholds and poles are indexed by token, not
+# by head_dim.
+
+@triton.jit
+def _pack_per_token_kernel(
+    values_ptr,        # (T, D) fp16
+    poles_ptr,         # (T, NUM_LEVELS) fp16
+    upper_ptr,         # (T,) fp16
+    lower_ptr,         # (T,) fp16
+    codes_ptr,
+    outlier_v_ptr,
+    outlier_m_ptr,
+    T: tl.constexpr,
+    D: tl.constexpr,
+    NUM_LEVELS: tl.constexpr,
+    BLOCK_T: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    pid_t = tl.program_id(0)
+    pid_d = tl.program_id(1)
+    offs_t = pid_t * BLOCK_T + tl.arange(0, BLOCK_T)
+    offs_d = pid_d * BLOCK_D + tl.arange(0, BLOCK_D)
+    mask_t = offs_t < T
+    mask_d = offs_d < D
+    mask_2d = mask_t[:, None] & mask_d[None, :]
+
+    val_addr = values_ptr + offs_t[:, None] * D + offs_d[None, :]
+    vals = tl.load(val_addr, mask=mask_2d, other=0.0).to(tl.float32)
+
+    upper = tl.load(upper_ptr + offs_t, mask=mask_t, other=1e9).to(tl.float32)
+    lower = tl.load(lower_ptr + offs_t, mask=mask_t, other=-1e9).to(tl.float32)
+    is_outlier = (vals > upper[:, None]) | (vals < lower[:, None])
+    is_outlier = is_outlier & mask_2d
+
+    best_idx = tl.zeros((BLOCK_T, BLOCK_D), dtype=tl.int32)
+    best_diff = tl.full((BLOCK_T, BLOCK_D), float("inf"), dtype=tl.float32)
+    for lvl in tl.static_range(NUM_LEVELS):
+        pole = tl.load(poles_ptr + offs_t * NUM_LEVELS + lvl, mask=mask_t, other=0.0).to(tl.float32)
+        diff = tl.abs(vals - pole[:, None])
+        is_better = diff < best_diff
+        best_diff = tl.where(is_better, diff, best_diff)
+        best_idx = tl.where(is_better, tl.full((BLOCK_T, BLOCK_D), lvl, dtype=tl.int32), best_idx)
+
+    code_addr = codes_ptr + offs_t[:, None] * D + offs_d[None, :]
+    tl.store(code_addr, best_idx.to(tl.uint8), mask=mask_2d)
+    tl.store(
+        outlier_v_ptr + offs_t[:, None] * D + offs_d[None, :],
+        tl.where(is_outlier, vals, tl.zeros_like(vals)).to(tl.float16),
+        mask=mask_2d,
+    )
+    tl.store(
+        outlier_m_ptr + offs_t[:, None] * D + offs_d[None, :],
+        tl.where(is_outlier, tl.full((BLOCK_T, BLOCK_D), 1, dtype=tl.uint8),
+                 tl.zeros((BLOCK_T, BLOCK_D), dtype=tl.uint8)),
+        mask=mask_2d,
+    )
+
+
+def pack_values_per_token(
+    values: torch.Tensor,        # (T, D) fp16
+    poles: torch.Tensor,         # (T, NUM_LEVELS) fp16
+    upper: torch.Tensor,         # (T,) fp16
+    lower: torch.Tensor,         # (T,) fp16
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Quantise Values with per-token scales."""
+    assert values.is_cuda and values.dtype == torch.float16
+    T, D = values.shape
+    NUM_LEVELS = poles.shape[-1]
+    codes = torch.empty(T, D, dtype=torch.uint8, device=values.device)
+    out_v = torch.empty(T, D, dtype=torch.float16, device=values.device)
+    out_m = torch.empty(T, D, dtype=torch.uint8, device=values.device)
+    BLOCK_T = 32
+    BLOCK_D = 64
+    grid = (triton.cdiv(T, BLOCK_T), triton.cdiv(D, BLOCK_D))
+    _pack_per_token_kernel[grid](
+        values, poles.contiguous(), upper, lower,
+        codes, out_v, out_m,
+        T=T, D=D, NUM_LEVELS=NUM_LEVELS,
+        BLOCK_T=BLOCK_T, BLOCK_D=BLOCK_D,
+    )
+    return codes, out_v, out_m
+
+
+@triton.jit
+def _unpack_per_token_kernel(
+    codes_ptr,
+    outlier_v_ptr,
+    outlier_m_ptr,
+    poles_ptr,         # (T, NUM_LEVELS)
+    out_ptr,
+    T: tl.constexpr,
+    D: tl.constexpr,
+    NUM_LEVELS: tl.constexpr,
+    BLOCK_T: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    pid_t = tl.program_id(0)
+    pid_d = tl.program_id(1)
+    offs_t = pid_t * BLOCK_T + tl.arange(0, BLOCK_T)
+    offs_d = pid_d * BLOCK_D + tl.arange(0, BLOCK_D)
+    mask_t = offs_t < T
+    mask_d = offs_d < D
+    mask_2d = mask_t[:, None] & mask_d[None, :]
+
+    codes = tl.load(codes_ptr + offs_t[:, None] * D + offs_d[None, :],
+                    mask=mask_2d, other=0).to(tl.int32)
+    recon = tl.zeros((BLOCK_T, BLOCK_D), dtype=tl.float32)
+    for lvl in tl.static_range(NUM_LEVELS):
+        pole = tl.load(poles_ptr + offs_t * NUM_LEVELS + lvl, mask=mask_t, other=0.0).to(tl.float32)
+        match = (codes == lvl)
+        recon = tl.where(match, pole[:, None], recon)
+
+    out_v = tl.load(outlier_v_ptr + offs_t[:, None] * D + offs_d[None, :],
+                    mask=mask_2d, other=0.0).to(tl.float32)
+    out_m = tl.load(outlier_m_ptr + offs_t[:, None] * D + offs_d[None, :],
+                    mask=mask_2d, other=0).to(tl.int32)
+    final = tl.where(out_m != 0, out_v, recon)
+    tl.store(out_ptr + offs_t[:, None] * D + offs_d[None, :],
+             final.to(tl.float16), mask=mask_2d)
+
+
+def unpack_values_per_token(
+    codes: torch.Tensor,
+    outlier_v: torch.Tensor,
+    outlier_m: torch.Tensor,
+    poles: torch.Tensor,
+) -> torch.Tensor:
+    assert codes.is_cuda and codes.dtype == torch.uint8
+    T, D = codes.shape
+    NUM_LEVELS = poles.shape[-1]
+    out = torch.empty(T, D, dtype=torch.float16, device=codes.device)
+    BLOCK_T = 32
+    BLOCK_D = 64
+    grid = (triton.cdiv(T, BLOCK_T), triton.cdiv(D, BLOCK_D))
+    _unpack_per_token_kernel[grid](
+        codes, outlier_v, outlier_m, poles.contiguous(), out,
+        T=T, D=D, NUM_LEVELS=NUM_LEVELS,
+        BLOCK_T=BLOCK_T, BLOCK_D=BLOCK_D,
+    )
+    return out
