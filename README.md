@@ -6,7 +6,7 @@ Goal: serve **Qwen2.5-7B-Instruct-1M** at effective 1M context with SOTA quality
 
 - [x] **Setup** — NVIDIA 595.71.05 + CUDA 13.0, torch 2.11.0+cu130, vLLM 0.20.1, FlashInfer 0.6.8
 - [x] **Baseline** — TP=1 @ 32K (3,395 t/s), TP=2 @ 128K (2,726 t/s, NIAH ✓) ([details](docs/PR_PLAN.md#pr0--baseline--done-2026-05-09))
-- [x] **PR1a** — AWQ INT4 weights → 128K on a single 3090 with NIAH ✓ (frees GPU 1 for PR5)
+- [x] **PR1a** — AWQ INT4 weights → 128K on a single 3090, **8/8 multi-needle recall** at 32K and 128K (frees GPU 1 for PR5)
 - [x] **PR1b** — nuq4 KV: math + scales + Triton kernels validated end-to-end (vLLM integration deferred, see `src/kvquant/vllm_integration.md`)
 - [ ] **PR1c** — KVQuant nuq2 (2-bit KV, 8× compression) — unlocks 1M+
 - [ ] **PR2** — MInference Vertical-Slash — deferred (vLLM 0.20.1 lacks the merged kernels; details in `docs/PR_PLAN.md#pr2`)
