@@ -2,6 +2,8 @@
 
 Goal: serve **Qwen2.5-7B-Instruct-1M** at effective 1M context with SOTA quality, plus retrieval-based extension to ~5M, on 2× RTX 3090 (48 GB total VRAM).
 
+Repo: https://github.com/xFuzzitx/helix-lite
+
 ## Status
 
 - [x] **Setup** — NVIDIA 595.71.05 + CUDA 13.0, torch 2.11.0+cu130, vLLM 0.20.1, FlashInfer 0.6.8
@@ -14,6 +16,44 @@ Goal: serve **Qwen2.5-7B-Instruct-1M** at effective 1M context with SOTA quality
 - [x] **PR5a** — EM-LLM scaffold: surprise segmenter + episode pool on GPU 1 (11/11 unit tests, end-to-end smoke on real Qwen2 with 50%% top-1 self-recall)
 - [x] **PR5b** — KV-chunk transfer & hot/cold attention swap: validated cos 0.93-0.98 vs dense at hot=2K + top-M=8 (39%% of context loaded, 5M scales as O(hot + M·episode_len))
 - [x] **Release v0** — `helix-cli` ships the queryable model: vanilla AWQ at ≤128K and EM-RAG (segment + retrieve + answer) for longer docs
+- [x] **Eval v0** — multi-needle NIAH for both paths (numbers below; retrieval is the EM-RAG bottleneck at >32K)
+
+## Eval results (v0)
+
+Multi-needle NIAH, 8 distinct needles spread evenly across the doc,
+graded by exact substring match on the answer.
+
+**Vanilla AWQ path** (full doc in context):
+
+| ctx | episodes | recall |
+|-----|----------|--------|
+| 32 K  | — | **8/8** (100%) |
+| 128 K | — | **8/8** (100%) |
+
+**EM-RAG path** (segment + retrieve + answer):
+
+| ctx | episodes | top-M=16 | top-M=64 | retrieval bottleneck |
+|-----|----------|----------|----------|----------------------|
+| 32 K  | 202   | 2/8 (25%) | **6/8 (75%)** | 6/8 (needle in retrieved chunks) |
+| 128 K | 811   | 1/8 (12%) | 3/8 (38%)     | 4/8 |
+| 200 K | 1272  | 2/8 (25%) | 3/8 (38%)     | 3/8 |
+
+Honest read: at large episode counts (800+), max-abs-pooled hidden
+states from the indexer are not selective enough — top-M=64 only
+gives 5% selectivity at 1272 episodes, and that's not enough to
+catch sparse needles. The KV-level path (PR5b math, deferred vLLM
+integration) bypasses this — but the *text-level* path that ships
+in v0 plateaus around 32 K. Below that, vanilla AWQ is strictly
+better; above 128 K it's the only path that runs at all.
+
+Reproduce:
+
+```bash
+PYTHONPATH=src python benchmarks/quality/run_em_rag_multi_needle.py \
+  --ctx 32000 128000 200000 --num-needles 8 --top-m 64
+```
+
+Raw JSON in [`benchmarks/results/`](benchmarks/results/).
 
 ## Query the model
 
@@ -24,8 +64,9 @@ Once the venv is set up (see *Setup* below), the CLI is one command:
 ./helix-cli --doc path/to/document.txt "Your question here"
 
 # EM-LLM RAG path: works on docs > 128K — segments + retrieves the
-# most relevant episodes before answering
-./helix-cli --doc large_book.txt --em-rag --top-m 16 "Who killed Roger Ackroyd?"
+# most relevant episodes before answering. Bump --top-m for longer
+# docs (ratio top-m/episodes drives recall; see Eval below).
+./helix-cli --doc large_book.txt --em-rag --top-m 64 "Who killed Roger Ackroyd?"
 
 # multi-turn shell over a single document
 ./helix-cli --doc paper.pdf.txt --repl
