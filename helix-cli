@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# HELIX-Lite CLI wrapper. Loads the project's .env and runs `python -m helix`.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT/.env"
+export HF_HOME="${HF_HOME:-/snapshots/helix-lite/hf-cache}"
+export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
+export TRANSFORMERS_VERBOSITY="${TRANSFORMERS_VERBOSITY:-warning}"
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+export VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS="${VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS:-0}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+exec python -m helix "$@"

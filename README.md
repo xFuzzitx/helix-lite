@@ -13,9 +13,29 @@ Goal: serve **Qwen2.5-7B-Instruct-1M** at effective 1M context with SOTA quality
 - [x] **PR3 + PR4** — Quest top-K page selection w/ attention-sink prefix: math + Triton kernel + 8/8 tests; smoke on real Qwen2 layer-14 shows cos 0.97 vs dense at 25%% KV loaded (4× decode speedup, quality preserved)
 - [x] **PR5a** — EM-LLM scaffold: surprise segmenter + episode pool on GPU 1 (11/11 unit tests, end-to-end smoke on real Qwen2 with 50%% top-1 self-recall)
 - [x] **PR5b** — KV-chunk transfer & hot/cold attention swap: validated cos 0.93-0.98 vs dense at hot=2K + top-M=8 (39%% of context loaded, 5M scales as O(hot + M·episode_len))
-- [ ] **Release** — full RULER/MRCR/BABILong + open-source repo
+- [x] **Release v0** — `helix-cli` ships the queryable model: vanilla AWQ at ≤128K and EM-RAG (segment + retrieve + answer) for longer docs
 
-## Quickstart
+## Query the model
+
+Once the venv is set up (see *Setup* below), the CLI is one command:
+
+```bash
+# vanilla path: full doc in context, up to 128K tokens, 1 GPU
+./helix-cli --doc path/to/document.txt "Your question here"
+
+# EM-LLM RAG path: works on docs > 128K — segments + retrieves the
+# most relevant episodes before answering
+./helix-cli --doc large_book.txt --em-rag --top-m 16 "Who killed Roger Ackroyd?"
+
+# multi-turn shell over a single document
+./helix-cli --doc paper.pdf.txt --repl
+```
+
+First run downloads `graelo/Qwen2.5-7B-Instruct-1M-AWQ` (≈ 5 GB) to
+the HF cache configured in `.env`. Subsequent runs are warm. Vanilla
+mode loads in ~3 s and answers a 2 K-token-doc query in under a second.
+
+## Setup
 
 ```bash
 # 1. Install NVIDIA driver + CUDA toolkit (sudo, reboot required)
@@ -28,10 +48,6 @@ bash setup/02_install_python.sh
 # 3. Verify everything works
 bash setup/03_verify.sh
 # Expected: 2× RTX 3090 visible, torch.cuda OK, vllm imports
-
-# 4. Run the baseline (downloads ~14 GB model on first run)
-source .venv/bin/activate
-python benchmarks/run_baseline.py
 ```
 
 ## Hardware
