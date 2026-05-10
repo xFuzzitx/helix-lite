@@ -88,17 +88,34 @@ def _pool_hidden(slab: torch.Tensor, mode: str) -> torch.Tensor:
     raise ValueError(f"unknown pool mode: {mode}")
 
 
-def build_index(document: str, cfg: EMRAGConfig | None = None) -> EpisodeIndex:
-    """Run the indexing forward and return a populated store."""
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+def _load_indexer(cfg: EMRAGConfig):
+    """Load the HF indexer model+tokenizer onto ``cfg.indexer_device``.
 
-    cfg = cfg or EMRAGConfig()
+    Returns ``(model, tokenizer)``. Caller is responsible for freeing
+    the model (``del`` + ``torch.cuda.empty_cache()``).
+    """
+    from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(cfg.indexer_model)
     model = AutoModelForCausalLM.from_pretrained(
         cfg.indexer_model, dtype=cfg.indexer_dtype, attn_implementation="sdpa"
     )
     model.to(cfg.indexer_device)
     model.train(False)
+    return model, tok
+
+
+def build_index(document: str, cfg: EMRAGConfig | None = None,
+                *, model=None, tokenizer=None) -> EpisodeIndex:
+    """Run the indexing forward and return a populated store.
+
+    If ``model``/``tokenizer`` are passed, reuse them and do NOT free
+    them at the end (caller-owned). Otherwise, load+free internally.
+    """
+    cfg = cfg or EMRAGConfig()
+    owns_model = model is None
+    if owns_model:
+        model, tokenizer = _load_indexer(cfg)
+    tok = tokenizer
 
     ids = tok.encode(document)[: cfg.max_doc_tokens]
     if not ids:
@@ -170,8 +187,9 @@ def build_index(document: str, cfg: EMRAGConfig | None = None) -> EpisodeIndex:
         store.add(emb, (seg_start, T))
         boundaries.append(T)
 
-    del model
-    torch.cuda.empty_cache()
+    if owns_model:
+        del model
+        torch.cuda.empty_cache()
     return EpisodeIndex(token_ids=ids, store=store, boundaries=boundaries)
 
 
@@ -207,26 +225,25 @@ def _gather_hidden_for_range(chunks: list[torch.Tensor], start: int, end: int,
 
 def retrieve_episode_texts(
     index: EpisodeIndex, question: str, cfg: EMRAGConfig | None = None,
-    tokenizer=None,
+    *, model=None, tokenizer=None,
 ) -> tuple[list[str], list[tuple[int, int]]]:
     """Embed ``question`` with the same indexer and return the top-M
-    episodes' decoded text (sorted by token range for causal order)."""
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    episodes' decoded text (sorted by token range for causal order).
 
+    Pass ``model``/``tokenizer`` to reuse a pre-loaded indexer (avoids
+    a second 14 GB load). Otherwise loads+frees internally.
+    """
     cfg = cfg or EMRAGConfig()
-    if tokenizer is None:
-        tokenizer = AutoTokenizer.from_pretrained(cfg.indexer_model)
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.indexer_model, dtype=cfg.indexer_dtype, attn_implementation="sdpa"
-    )
-    model.to(cfg.indexer_device)
-    model.train(False)
+    owns_model = model is None
+    if owns_model:
+        model, tokenizer = _load_indexer(cfg)
     q_ids = tokenizer.encode(question, return_tensors="pt").to(cfg.indexer_device)
     with torch.no_grad():
         q_out = model(q_ids, output_hidden_states=True, use_cache=False)
     q_emb = _pool_hidden(q_out.hidden_states[-1][0], cfg.query_pool)
-    del model
-    torch.cuda.empty_cache()
+    if owns_model:
+        del model
+        torch.cuda.empty_cache()
 
     top = index.store.topk(q_emb, k=cfg.top_m, metric="cosine")
     eps: list[Episode] = [ep for ep, _ in top]
@@ -245,11 +262,18 @@ def em_rag(question: str, document: str, cfg: EMRAGConfig | None = None,
     can audit which spans were consulted.
     """
     cfg = cfg or EMRAGConfig()
-    print(f"[em_rag] indexing {len(document):,} chars ...", flush=True)
-    index = build_index(document, cfg)
-    print(f"[em_rag] {index.store.num_episodes} episodes, "
-          f"retrieving top-{cfg.top_m}", flush=True)
-    texts, ranges = retrieve_episode_texts(index, question, cfg)
+    print(f"[em_rag] loading indexer ({cfg.indexer_model}) ...", flush=True)
+    model, tokenizer = _load_indexer(cfg)
+    try:
+        print(f"[em_rag] indexing {len(document):,} chars ...", flush=True)
+        index = build_index(document, cfg, model=model, tokenizer=tokenizer)
+        print(f"[em_rag] {index.store.num_episodes} episodes, "
+              f"retrieving top-{cfg.top_m}", flush=True)
+        texts, ranges = retrieve_episode_texts(
+            index, question, cfg, model=model, tokenizer=tokenizer)
+    finally:
+        del model
+        torch.cuda.empty_cache()
 
     print("[em_rag] generating with AWQ ...", flush=True)
     # Lazy import vLLM so we don't hold both runtimes resident at once.
