@@ -42,6 +42,12 @@ def main() -> int:
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--baseline", action="store_true",
                    help="skip the nuq install (= vanilla AWQ, for A/B)")
+    p.add_argument("--compact", action="store_true",
+                   help="use Phase 1B v1 compact pool (writes mirrored to "
+                        "user-owned uint8 pool; FA still reads from fp16). "
+                        "Validates pack-on-write integration end-to-end.")
+    p.add_argument("--compact-num-blocks", type=int, default=20_000,
+                   help="num_blocks for the compact pool (each = block_size tokens)")
     args = p.parse_args()
 
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
@@ -52,12 +58,21 @@ def main() -> int:
     if not args.scales.exists():
         sys.exit(f"scales file not found: {args.scales}")
 
-    if not args.baseline:
+    if args.baseline:
+        print("[smoke] BASELINE — no kvquant, vanilla FA")
+    elif args.compact:
+        from kvquant.compact_backend import install_compact_backend
+        install_compact_backend(
+            str(args.scales),
+            num_layers=28, num_blocks=args.compact_num_blocks,
+            block_size=16, num_kv_heads=4, head_size=128,
+            device=args.device, top_k_blocks_decode=0,
+        )
+        print("[smoke] PR1c Phase 1B v1 compact backend installed")
+    else:
         from kvquant.vllm_backend import install_kvquant_backend
         install_kvquant_backend(str(args.scales), device=args.device)
-        print("[smoke] kvquant backend installed")
-    else:
-        print("[smoke] BASELINE — no kvquant, vanilla FA")
+        print("[smoke] PR1c Phase 1A math-wrapper backend installed")
 
     from vllm import LLM, SamplingParams
     from transformers import AutoTokenizer
