@@ -36,11 +36,11 @@ from vllm.v1.attention.backends.flash_attn import (
 )
 
 from .scales import KVScales, PerChannelScale, PerTokenScale
-from .triton_kernels import (
-    pack_keys_per_channel,
-    pack_values_per_token,
-    unpack_keys_per_channel,
-    unpack_values_per_token,
+from .triton_batched import (
+    pack_keys_per_channel_batched,
+    pack_values_per_token_batched,
+    unpack_keys_per_channel_batched,
+    unpack_values_per_token_batched,
 )
 
 if TYPE_CHECKING:
@@ -136,42 +136,28 @@ def _quant_dequant_kv(
     H_kv = k_scale.poles.shape[0]
     assert H == H_kv, f"key heads {H} != scale heads {H_kv}"
 
-    # Cast to fp16 for the kernels (they assert fp16).
-    k_f16 = key.to(torch.float16)
-    v_f16 = value.to(torch.float16)
+    # Cast to fp16 contiguous (T, H, D) for the batched kernels.
+    k_f16 = key.to(torch.float16).contiguous()
+    v_f16 = value.to(torch.float16).contiguous()
 
-    # Per-token V scales: tail-extrapolate by clamping the time index
-    # to the last calibrated slot. For Phase 1A this is a single broadcast
-    # of the last calibrated scale across all positions — the Values'
-    # outlier statistics stabilise after a few thousand tokens.
+    # K: per-channel scales already (H, D, L). Single batched launch.
+    k_codes, k_outv, k_outm = pack_keys_per_channel_batched(
+        k_f16, k_scale.poles, k_scale.upper_threshold, k_scale.lower_threshold,
+    )
+    key_q = unpack_keys_per_channel_batched(k_codes, k_outv, k_outm, k_scale.poles)
+
+    # V: per-token scales (H, T_cal, L) need tail-extrapolation. Gather
+    # along the token axis with clamping to get (H, T, L)/(H, T) tensors.
     T_cal = v_scale.poles.shape[1]
     t_idx = torch.arange(T, device=value.device).clamp_(max=T_cal - 1)
+    v_poles = v_scale.poles.index_select(1, t_idx).contiguous()         # (H, T, L)
+    v_upper = v_scale.upper_threshold.index_select(1, t_idx).contiguous()  # (H, T)
+    v_lower = v_scale.lower_threshold.index_select(1, t_idx).contiguous()  # (H, T)
 
-    key_q = torch.empty_like(k_f16)
-    value_q = torch.empty_like(v_f16)
-
-    for h in range(H):
-        # K: per-channel along head_dim
-        k_codes, k_outv, k_outm = pack_keys_per_channel(
-            k_f16[:, h, :].contiguous(),
-            k_scale.poles[h].contiguous(),
-            k_scale.upper_threshold[h].contiguous(),
-            k_scale.lower_threshold[h].contiguous(),
-        )
-        key_q[:, h, :] = unpack_keys_per_channel(
-            k_codes, k_outv, k_outm, k_scale.poles[h].contiguous(),
-        )
-
-        # V: per-token (tail-extrapolated)
-        v_codes, v_outv, v_outm = pack_values_per_token(
-            v_f16[:, h, :].contiguous(),
-            v_scale.poles[h, t_idx].contiguous(),
-            v_scale.upper_threshold[h, t_idx].contiguous(),
-            v_scale.lower_threshold[h, t_idx].contiguous(),
-        )
-        value_q[:, h, :] = unpack_values_per_token(
-            v_codes, v_outv, v_outm, v_scale.poles[h, t_idx].contiguous(),
-        )
+    v_codes, v_outv, v_outm = pack_values_per_token_batched(
+        v_f16, v_poles, v_upper, v_lower,
+    )
+    value_q = unpack_values_per_token_batched(v_codes, v_outv, v_outm, v_poles)
 
     return key_q.to(orig_dtype), value_q.to(orig_dtype)
 
