@@ -18,6 +18,7 @@ Repo: https://github.com/xFuzzitx/helix-lite
 - [x] **Release v0** — `helix-cli` ships the queryable model: vanilla AWQ at ≤128K and EM-RAG (segment + retrieve + answer) for longer docs
 - [x] **Eval v0** — multi-needle NIAH for both paths (numbers below; retrieval is the EM-RAG bottleneck at >32K)
 - [x] **Eval v0.1** — mid-layer indexer embeddings: 38%→75% @128K, 38%→62% @200K (+100% / +67%), no change to segmenter/pool/index
+- [x] **Eval v0.2** — top-M proportional to ctx (top-M=256 at ≥512K): 0%→62% @1M, 38%→62% @512K. Sweet spot found; top-M=384 already regresses (distractors).
 
 ## Eval results (v0)
 
@@ -33,11 +34,14 @@ graded by exact substring match on the answer.
 
 **EM-RAG path** (segment + retrieve + answer):
 
-| ctx | episodes | top-M=64 last-layer (v0) | top-M=64 **mid-layer** (v0.1) |
-|-----|----------|--------------------------|-------------------------------|
-| 32 K  | 202   | 6/8 (75%)  | **7/8 (88%)** |
-| 128 K | 811   | 3/8 (38%)  | **6/8 (75%)** |
-| 200 K | 1272  | 3/8 (38%)  | **5/8 (62%)** |
+| ctx | episodes | top-M=64 last-layer (v0) | top-M=64 mid-layer (v0.1) | top-M=**256** mid-layer (v0.2) |
+|-----|----------|---|---|---|
+| 32 K   | 202  | 6/8 (75%) | **7/8 (88%)** | — |
+| 128 K  | 811  | 3/8 (38%) | **6/8 (75%)** | — |
+| 200 K  | 1272 | 3/8 (38%) | **5/8 (62%)** | — |
+| 256 K  | 1635 | —         | **6/8 (75%)** | **6/8 (75%)** |
+| 512 K  | 3259 | —         | 3/8 (38%)     | **5/8 (62%)** |
+| 1 M    | 6378 | —         | 0/8 (0%) 💀   | **5/8 (62%)** |
 
 v0 used the indexer's *last* layer hidden states (layer 28/28) as
 episode embeddings. The last layer is specialised for next-token
@@ -48,16 +52,34 @@ roughly doubles recall at 128K (38% → 75%) and pushes 200K from
 38% → 62%, without any change to the segmenter, pool function,
 or retrieval index.
 
-This is now the default (`EMRAGConfig.indexer_layer="mid"`).
+v0.2 (top-M=256) — at very long contexts the episode count grows
+to thousands (6378 episodes at 1M tokens), so top-M=64 gives only
+~1% selectivity and recall collapses to 0/8 at 1M. Scaling top-M
+proportionally to keep ~4% selectivity restores recall: **5/8 at
+1M ctx**, up from 0/8. Top-M=384 was tried as well but does worse
+(4/8 at 1M) because the extra retrieved episodes act as distractors
+that dilute the answer span — quality of top-M=256 matters more
+than quantity beyond that.
+
+Sweet spot: `indexer_layer="mid"` + `top_m=256` on 2× RTX 3090
+sustains ≥62% recall from 32K up to 1M tokens.
+
 The KV-level path (PR5b math, deferred vLLM integration) bypasses
 the indexer entirely; the *text-level* path that ships still needs
-better query/episode embeddings beyond 200K, and that's the next
-direction (HyDE query expansion, cross-encoder re-rank).
+better top-K **quality** to break 62% at 1M, and that's the next
+direction (cross-encoder re-rank, multi-vector / ColBERT). HyDE
+query expansion was tried and failed (-66% at 128K — generic
+hypothetical passages drift away from the rare-token needle style).
 
 Reproduce:
 
 ```bash
-# Mid-layer default (v0.1)
+# v0.2: 32K → 1M with mid layer + top-M=256
+PYTHONPATH=src python benchmarks/quality/run_em_rag_multi_needle.py \
+  --ctx 32000 128000 256000 512000 1000000 \
+  --num-needles 8 --top-m 256 --max-doc-tokens 1100000
+
+# v0.1: same but top-M=64 (highlights the 0% collapse at 1M)
 PYTHONPATH=src python benchmarks/quality/run_em_rag_multi_needle.py \
   --ctx 32000 128000 200000 --num-needles 8 --top-m 64
 
