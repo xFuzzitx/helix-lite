@@ -80,6 +80,17 @@ class EMRAGConfig:
         "Below is a question and a likely passage that would contain its answer.\n\n"
         "Question: {question}\nPassage: "
     )
+    # Cross-encoder / LLM-as-reranker: take a wider cosine top-K, then re-score
+    # each candidate by asking the indexer model whether the question's answer
+    # is in the candidate text. Final top-M = the highest-scored after rerank.
+    # Score = logit(" yes") − logit(" no") at the answer position.
+    rerank: bool = False
+    rerank_topk: int = 256              # cosine top-K BEFORE rerank
+    rerank_max_episode_chars: int = 2000  # truncate long episodes for the rerank prompt
+    rerank_template: str = (
+        "Read the document below and judge whether it contains the answer to the question.\n\n"
+        "Document: {episode}\n\nQuestion: {question}\n\nAnswer (yes/no):"
+    )
 
 
 @dataclass
@@ -306,17 +317,71 @@ def retrieve_episode_texts(
         q_out = model(q_ids, output_hidden_states=True, use_cache=False)
     q_hidden = _select_hidden_chunk(q_out.hidden_states, cfg.indexer_layer)
     q_emb = _pool_hidden(q_hidden, cfg.query_pool, cfg.pool_alpha)
+
+    # Cosine top-K (wider when re-ranking)
+    cosine_k = cfg.rerank_topk if cfg.rerank else cfg.top_m
+    top = index.store.topk(q_emb, k=cosine_k, metric="cosine")
+    eps: list[Episode] = [ep for ep, _ in top]
+
+    if cfg.rerank:
+        # Decode candidates, score them with the indexer model, keep top-M.
+        scored = _rerank_with_model(
+            model, tokenizer, question, eps, index.token_ids, cfg,
+        )
+        eps = [ep for ep, _ in scored[: cfg.top_m]]
+
     if owns_model:
         del model
         torch.cuda.empty_cache()
 
-    top = index.store.topk(q_emb, k=cfg.top_m, metric="cosine")
-    eps: list[Episode] = [ep for ep, _ in top]
+    # Sort selected episodes in causal (token-position) order before concatenation
     eps.sort(key=lambda e: e.token_range[0])
     texts = [tokenizer.decode(index.token_ids[a:b]) for (a, b) in
              [(ep.token_range[0], ep.token_range[1]) for ep in eps]]
     ranges = [ep.token_range for ep in eps]
     return texts, ranges
+
+
+def _rerank_with_model(
+    model, tokenizer, question: str,
+    candidates: list[Episode], doc_token_ids: list[int],
+    cfg: EMRAGConfig,
+) -> list[tuple[Episode, float]]:
+    """LLM-as-reranker: for each candidate episode, score the model's
+    yes/no judgment of whether the answer to ``question`` lies in it.
+
+    Returns ``[(Episode, score), ...]`` sorted by descending score.
+    Score = logit(" yes") − logit(" no") at the answer position.
+
+    Episodes longer than ``cfg.rerank_max_episode_chars`` are truncated
+    in character space (cheap, no re-tokenization for measurement).
+    """
+    # Resolve yes/no token ids once.
+    yes_ids = tokenizer.encode(" yes", add_special_tokens=False)
+    no_ids = tokenizer.encode(" no", add_special_tokens=False)
+    yes_id = yes_ids[0] if yes_ids else tokenizer.encode("yes", add_special_tokens=False)[0]
+    no_id = no_ids[0] if no_ids else tokenizer.encode("no", add_special_tokens=False)[0]
+
+    scores: list[tuple[Episode, float]] = []
+    for ep in candidates:
+        a, b = ep.token_range
+        ep_text = tokenizer.decode(doc_token_ids[a:b])
+        if len(ep_text) > cfg.rerank_max_episode_chars:
+            # Keep head + tail; needle usually lives in the original episode
+            # span so truncating evenly is a reasonable default.
+            head = cfg.rerank_max_episode_chars // 2
+            tail = cfg.rerank_max_episode_chars - head
+            ep_text = ep_text[:head] + " […] " + ep_text[-tail:]
+        prompt = cfg.rerank_template.format(episode=ep_text, question=question)
+        ids = tokenizer.encode(prompt, return_tensors="pt").to(cfg.indexer_device)
+        with torch.no_grad():
+            out = model(ids, use_cache=False)
+        next_logits = out.logits[0, -1]
+        score = float((next_logits[yes_id] - next_logits[no_id]).item())
+        scores.append((ep, score))
+
+    scores.sort(key=lambda x: x[1], reverse=True)
+    return scores
 
 
 def em_rag(question: str, document: str, cfg: EMRAGConfig | None = None,

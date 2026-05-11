@@ -19,6 +19,7 @@ Repo: https://github.com/xFuzzitx/helix-lite
 - [x] **Eval v0** — multi-needle NIAH for both paths (numbers below; retrieval is the EM-RAG bottleneck at >32K)
 - [x] **Eval v0.1** — mid-layer indexer embeddings: 38%→75% @128K, 38%→62% @200K (+100% / +67%), no change to segmenter/pool/index
 - [x] **Eval v0.2** — top-M proportional to ctx (top-M=256 at ≥512K): 0%→62% @1M, 38%→62% @512K. Sweet spot found; top-M=384 already regresses (distractors).
+- [x] **Eval v0.3** — LLM-as-reranker on wider cosine top-K (1024 → top-M=64): **8/8 (100%) @256K**, plateaus at 5/8 @512K-1M (2 needles structurally outside cosine top-1024).
 
 ## Eval results (v0)
 
@@ -34,14 +35,14 @@ graded by exact substring match on the answer.
 
 **EM-RAG path** (segment + retrieve + answer):
 
-| ctx | episodes | top-M=64 last-layer (v0) | top-M=64 mid-layer (v0.1) | top-M=**256** mid-layer (v0.2) |
-|-----|----------|---|---|---|
-| 32 K   | 202  | 6/8 (75%) | **7/8 (88%)** | — |
-| 128 K  | 811  | 3/8 (38%) | **6/8 (75%)** | — |
-| 200 K  | 1272 | 3/8 (38%) | **5/8 (62%)** | — |
-| 256 K  | 1635 | —         | **6/8 (75%)** | **6/8 (75%)** |
-| 512 K  | 3259 | —         | 3/8 (38%)     | **5/8 (62%)** |
-| 1 M    | 6378 | —         | 0/8 (0%) 💀   | **5/8 (62%)** |
+| ctx | episodes | v0 last/M=64 | v0.1 mid/M=64 | v0.2 mid/M=256 | **v0.3 rerank topk=1024 → M=64** |
+|-----|---------:|---:|---:|---:|---:|
+| 32 K   | 202  | 6/8 (75%) | **7/8 (88%)** | — | — |
+| 128 K  | 811  | 3/8 (38%) | **6/8 (75%)** | — | — |
+| 200 K  | 1272 | 3/8 (38%) | **5/8 (62%)** | — | — |
+| 256 K  | 1635 | —         | 6/8 (75%)     | 6/8 (75%) | **8/8 (100%)** |
+| 512 K  | 3259 | —         | 3/8 (38%)     | **5/8 (62%)** | 5/8 (62%) |
+| 1 M    | 6378 | —         | 0/8 (0%) 💀   | **5/8 (62%)** | 5/8 (62%) |
 
 v0 used the indexer's *last* layer hidden states (layer 28/28) as
 episode embeddings. The last layer is specialised for next-token
@@ -64,11 +65,31 @@ than quantity beyond that.
 Sweet spot: `indexer_layer="mid"` + `top_m=256` on 2× RTX 3090
 sustains ≥62% recall from 32K up to 1M tokens.
 
-The KV-level path (PR5b math, deferred vLLM integration) bypasses
-the indexer entirely; the *text-level* path that ships still needs
-better top-K **quality** to break 62% at 1M, and that's the next
-direction (cross-encoder re-rank, multi-vector / ColBERT). HyDE
-query expansion was tried and failed (-66% at 128K — generic
+v0.3 (rerank topk=1024 → top-M=64) — wider cosine top-K=1024 then
+LLM-as-reranker on the indexer model. **Reaches 8/8 recall at 256K**
+(up from 6/8). At 512K and 1M the AWQ recall plateaus at 5/8 because
+two specific needles ("TY-3407" at depth 0.36, "PL-4350" at 0.77)
+fall out of the top-1024 cosine retrieval entirely — i.e. the
+mid-layer max-abs embedding is structurally blind to those values.
+A first rerank attempt with topk=256 was useless (same recall as
+cosine pure) because the needles weren't in the top-256 either —
+the rerank can only sharpen a candidate set that already contains
+the answer.
+
+Cost: rerank adds ~500s of forward passes per ctx at topk=1024.
+The wider-cosine + rerank path is exposed as `--rerank --rerank-topk N`
+in the bench and `EMRAGConfig.rerank=True`, opt-in.
+
+Open paths to break the 5/8 ceiling at 1M:
+- Embedding model dedicated to similarity (BGE-M3, Qwen3-Embedding) —
+  the bottleneck is now the cosine cone shape from raw hidden states,
+  not the rerank precision.
+- ColBERT-style multi-vector retrieval (N vectors per episode,
+  max-sim) — should help rare-token needles like TY-3407.
+- PR5b KV-level path (deferred vLLM integration) — bypasses the
+  text-level retrieval entirely.
+
+HyDE query expansion was tried and failed (-66% at 128K — generic
 hypothetical passages drift away from the rare-token needle style).
 
 Reproduce:

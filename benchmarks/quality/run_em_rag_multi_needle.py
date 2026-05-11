@@ -71,6 +71,9 @@ def phase_a_retrieve(args) -> Path:
         indexer_layer=args.indexer_layer,
         hyde=args.hyde,
         hyde_max_tokens=args.hyde_max_tokens,
+        rerank=args.rerank,
+        rerank_topk=args.rerank_topk,
+        rerank_max_episode_chars=args.rerank_max_episode_chars,
     )
     grading_tok = AutoTokenizer.from_pretrained(args.generator)
 
@@ -81,6 +84,7 @@ def phase_a_retrieve(args) -> Path:
         "pool": args.pool, "query_pool": args.query_pool,
         "pool_alpha": args.pool_alpha, "indexer_layer": args.indexer_layer,
         "hyde": args.hyde, "hyde_max_tokens": args.hyde_max_tokens,
+        "rerank": args.rerank, "rerank_topk": args.rerank_topk,
         "ctxs": [],
     }
 
@@ -180,9 +184,10 @@ def phase_b_generate(cache_path: Path, gmu: float) -> Path:
     pool_tag = payload.get("pool", "max-abs").replace("+", "_")
     layer_tag = payload.get("indexer_layer", "last")
     hyde_tag = "_hyde" if payload.get("hyde") else ""
+    rerank_tag = f"_rerank{payload.get('rerank_topk', 0)}" if payload.get("rerank") else ""
     out_path = (
         RESULTS_DIR
-        / f"em_rag_multi_needle_topm{safe_topm}_pool-{pool_tag}_layer-{layer_tag}{hyde_tag}_{ts}.json"
+        / f"em_rag_multi_needle_topm{safe_topm}_pool-{pool_tag}_layer-{layer_tag}{hyde_tag}{rerank_tag}_{ts}.json"
     )
     answers_payload["ts"] = ts
     out_path.write_text(json.dumps(answers_payload, indent=2))
@@ -223,6 +228,12 @@ def main() -> None:
                         "passage + embed that instead of bare question)")
     p.add_argument("--hyde-max-tokens", type=int, default=48,
                    help="max tokens of hypothetical-passage continuation")
+    p.add_argument("--rerank", action="store_true",
+                   help="enable LLM-as-reranker on top of cosine retrieval")
+    p.add_argument("--rerank-topk", type=int, default=256,
+                   help="cosine top-K before rerank (default: 256)")
+    p.add_argument("--rerank-max-episode-chars", type=int, default=2000,
+                   help="truncate long episodes for the rerank prompt")
     p.add_argument("--phase", choices=["all", "a", "b"], default="all",
                    help="'all' = run A then re-exec B in subprocess; "
                         "'a' = only HF indexing+retrieval; "
