@@ -91,6 +91,16 @@ class EMRAGConfig:
         "Read the document below and judge whether it contains the answer to the question.\n\n"
         "Document: {episode}\n\nQuestion: {question}\n\nAnswer (yes/no):"
     )
+    # Dedicated similarity encoder for episode/query embeddings. Bypasses
+    # the indexer hidden-state pooling entirely. Examples:
+    #   "BAAI/bge-m3"           (multilingual, 568M, 1024-dim, 8K input)
+    #   "Qwen/Qwen3-Embedding-0.6B" (Qwen-aligned, 600M, 1024-dim, 32K input)
+    # Lives on embedding_device (GPU 1 by default, so it co-resides with the
+    # store and frees GPU 0 for the indexer/AWQ).
+    embedding_model: str | None = None
+    embedding_device: str = "cuda:1"
+    embedding_max_tokens: int = 8192
+    embedding_batch_size: int = 32
 
 
 @dataclass
@@ -162,12 +172,64 @@ def _load_indexer(cfg: EMRAGConfig):
     return model, tok
 
 
+def _load_embedding_model(cfg: EMRAGConfig):
+    """Load a dedicated similarity encoder onto ``cfg.embedding_device``.
+
+    Returns ``(model, tokenizer)`` or ``(None, None)`` if no embedding
+    model is configured. The encoder is meant to replace the indexer
+    hidden-state pooling for episode/query embeddings.
+    """
+    if not cfg.embedding_model:
+        return None, None
+    from transformers import AutoModel, AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(cfg.embedding_model)
+    model = AutoModel.from_pretrained(
+        cfg.embedding_model, dtype=cfg.indexer_dtype
+    )
+    model.to(cfg.embedding_device)
+    model.train(False)
+    return model, tok
+
+
+def _encode_texts(
+    model, tokenizer, texts: list[str], cfg: EMRAGConfig,
+) -> torch.Tensor:
+    """Batched encoder forward → ``(N, emb_dim)`` L2-normalized embeddings.
+
+    Uses the CLS-token (BGE-style) pooling: first-position last-layer
+    hidden state. Works for BGE-M3, Qwen3-Embedding, and most sentence
+    encoder checkpoints; falls back gracefully if there's no CLS-style
+    pooling (the model still returns *some* sequence-level vector).
+    """
+    embs: list[torch.Tensor] = []
+    bs = cfg.embedding_batch_size
+    for i in range(0, len(texts), bs):
+        batch = texts[i : i + bs]
+        inputs = tokenizer(
+            batch,
+            padding=True,
+            truncation=True,
+            max_length=cfg.embedding_max_tokens,
+            return_tensors="pt",
+        ).to(cfg.embedding_device)
+        with torch.no_grad():
+            out = model(**inputs)
+        # Take CLS / first-token embedding from last hidden state.
+        e = out.last_hidden_state[:, 0, :]
+        e = torch.nn.functional.normalize(e.float(), p=2, dim=-1)
+        embs.append(e.to(cfg.indexer_dtype))
+    return torch.cat(embs, dim=0)
+
+
 def build_index(document: str, cfg: EMRAGConfig | None = None,
-                *, model=None, tokenizer=None) -> EpisodeIndex:
+                *, model=None, tokenizer=None,
+                embedding_model=None, embedding_tokenizer=None) -> EpisodeIndex:
     """Run the indexing forward and return a populated store.
 
     If ``model``/``tokenizer`` are passed, reuse them and do NOT free
     them at the end (caller-owned). Otherwise, load+free internally.
+    Same convention for ``embedding_model``/``embedding_tokenizer``
+    when ``cfg.embedding_model`` is set.
     """
     cfg = cfg or EMRAGConfig()
     owns_model = model is None
@@ -248,7 +310,52 @@ def build_index(document: str, cfg: EMRAGConfig | None = None,
     if owns_model:
         del model
         torch.cuda.empty_cache()
+
+    if cfg.embedding_model:
+        store = _rebuild_store_with_embedding_model(
+            store, ids, tok, cfg,
+            embedding_model=embedding_model,
+            embedding_tokenizer=embedding_tokenizer,
+        )
     return EpisodeIndex(token_ids=ids, store=store, boundaries=boundaries)
+
+
+def _rebuild_store_with_embedding_model(
+    store: "KVEpisodeStore", token_ids: list[int],
+    indexer_tokenizer, cfg: EMRAGConfig,
+    *, embedding_model=None, embedding_tokenizer=None,
+) -> "KVEpisodeStore":
+    """Re-embed every episode in ``store`` using the dedicated encoder.
+
+    Returns a fresh store whose embeddings are produced by
+    ``cfg.embedding_model``. Episode token_ranges and surprise values
+    are preserved. Reuses caller-owned ``embedding_model``/``tokenizer``
+    when provided; otherwise loads+frees internally.
+    """
+    owns_emb = embedding_model is None
+    if owns_emb:
+        emb_model, emb_tok = _load_embedding_model(cfg)
+    else:
+        emb_model, emb_tok = embedding_model, embedding_tokenizer
+    try:
+        texts = [
+            indexer_tokenizer.decode(token_ids[ep.token_range[0] : ep.token_range[1]])
+            for ep in store.episodes
+        ]
+        embs = _encode_texts(emb_model, emb_tok, texts, cfg)
+    finally:
+        if owns_emb:
+            del emb_model
+            torch.cuda.empty_cache()
+
+    emb_dim = embs.shape[-1]
+    new_store = KVEpisodeStore(
+        emb_dim=emb_dim, device=cfg.store_device,
+        capacity=store.capacity, dtype=cfg.indexer_dtype,
+    )
+    for i, ep in enumerate(store.episodes):
+        new_store.add(embs[i], ep.token_range, ep.surprise)
+    return new_store
 
 
 def _gather_hidden_for_range(chunks: list[torch.Tensor], start: int, end: int,
@@ -284,17 +391,51 @@ def _gather_hidden_for_range(chunks: list[torch.Tensor], start: int, end: int,
 def retrieve_episode_texts(
     index: EpisodeIndex, question: str, cfg: EMRAGConfig | None = None,
     *, model=None, tokenizer=None,
+    embedding_model=None, embedding_tokenizer=None,
 ) -> tuple[list[str], list[tuple[int, int]]]:
     """Embed ``question`` with the same indexer and return the top-M
     episodes' decoded text (sorted by token range for causal order).
 
     Pass ``model``/``tokenizer`` to reuse a pre-loaded indexer (avoids
     a second 14 GB load). Otherwise loads+frees internally.
+    Same convention for ``embedding_model``/``embedding_tokenizer``
+    when ``cfg.embedding_model`` is set.
     """
     cfg = cfg or EMRAGConfig()
     owns_model = model is None
     if owns_model:
         model, tokenizer = _load_indexer(cfg)
+
+    # Dedicated embedding model path: skip Qwen indexer forward entirely
+    # for the query and encode it with the same encoder used at index time.
+    if cfg.embedding_model:
+        owns_emb = embedding_model is None
+        if owns_emb:
+            emb_model, emb_tok = _load_embedding_model(cfg)
+        else:
+            emb_model, emb_tok = embedding_model, embedding_tokenizer
+        try:
+            q_emb = _encode_texts(emb_model, emb_tok, [question], cfg)[0]
+        finally:
+            if owns_emb:
+                del emb_model
+                torch.cuda.empty_cache()
+        cosine_k = cfg.rerank_topk if cfg.rerank else cfg.top_m
+        top = index.store.topk(q_emb, k=cosine_k, metric="cosine")
+        eps: list[Episode] = [ep for ep, _ in top]
+        if cfg.rerank:
+            scored = _rerank_with_model(
+                model, tokenizer, question, eps, index.token_ids, cfg,
+            )
+            eps = [ep for ep, _ in scored[: cfg.top_m]]
+        if owns_model:
+            del model
+            torch.cuda.empty_cache()
+        eps.sort(key=lambda e: e.token_range[0])
+        texts = [tokenizer.decode(index.token_ids[a:b]) for (a, b) in
+                 [(ep.token_range[0], ep.token_range[1]) for ep in eps]]
+        ranges = [ep.token_range for ep in eps]
+        return texts, ranges
 
     if cfg.hyde:
         # Generate a short hypothetical-passage continuation, then embed

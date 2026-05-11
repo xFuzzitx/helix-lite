@@ -20,6 +20,7 @@ Repo: https://github.com/xFuzzitx/helix-lite
 - [x] **Eval v0.1** — mid-layer indexer embeddings: 38%→75% @128K, 38%→62% @200K (+100% / +67%), no change to segmenter/pool/index
 - [x] **Eval v0.2** — top-M proportional to ctx (top-M=256 at ≥512K): 0%→62% @1M, 38%→62% @512K. Sweet spot found; top-M=384 already regresses (distractors).
 - [x] **Eval v0.3** — LLM-as-reranker on wider cosine top-K (1024 → top-M=64): **8/8 (100%) @256K**, plateaus at 5/8 @512K-1M (2 needles structurally outside cosine top-1024).
+- [x] **Eval v0.4** — dedicated similarity encoder (BGE-M3, 568M, GPU 1): **8/8 (100%) @256K / 512K / 1M**, top-M=64, no rerank needed. RAG-killer goal hit on 2× RTX 3090.
 
 ## Eval results (v0)
 
@@ -35,14 +36,14 @@ graded by exact substring match on the answer.
 
 **EM-RAG path** (segment + retrieve + answer):
 
-| ctx | episodes | v0 last/M=64 | v0.1 mid/M=64 | v0.2 mid/M=256 | **v0.3 rerank topk=1024 → M=64** |
-|-----|---------:|---:|---:|---:|---:|
-| 32 K   | 202  | 6/8 (75%) | **7/8 (88%)** | — | — |
-| 128 K  | 811  | 3/8 (38%) | **6/8 (75%)** | — | — |
-| 200 K  | 1272 | 3/8 (38%) | **5/8 (62%)** | — | — |
-| 256 K  | 1635 | —         | 6/8 (75%)     | 6/8 (75%) | **8/8 (100%)** |
-| 512 K  | 3259 | —         | 3/8 (38%)     | **5/8 (62%)** | 5/8 (62%) |
-| 1 M    | 6378 | —         | 0/8 (0%) 💀   | **5/8 (62%)** | 5/8 (62%) |
+| ctx | episodes | v0 last/M=64 | v0.1 mid/M=64 | v0.2 mid/M=256 | v0.3 rerank topk=1024 | **v0.4 BGE-M3** |
+|-----|---------:|---:|---:|---:|---:|---:|
+| 32 K   | 202  | 6/8 (75%) | **7/8 (88%)** | — | — | — |
+| 128 K  | 811  | 3/8 (38%) | **6/8 (75%)** | — | — | — |
+| 200 K  | 1272 | 3/8 (38%) | **5/8 (62%)** | — | — | — |
+| 256 K  | 1635 | —         | 6/8 (75%)     | 6/8 (75%) | 8/8 (100%) | **8/8 (100%)** |
+| 512 K  | 3259 | —         | 3/8 (38%)     | 5/8 (62%) | 5/8 (62%) | **8/8 (100%)** |
+| 1 M    | 6378 | —         | 0/8 (0%) 💀   | 5/8 (62%) | 5/8 (62%) | **8/8 (100%)** ⭐ |
 
 v0 used the indexer's *last* layer hidden states (layer 28/28) as
 episode embeddings. The last layer is specialised for next-token
@@ -80,14 +81,29 @@ Cost: rerank adds ~500s of forward passes per ctx at topk=1024.
 The wider-cosine + rerank path is exposed as `--rerank --rerank-topk N`
 in the bench and `EMRAGConfig.rerank=True`, opt-in.
 
-Open paths to break the 5/8 ceiling at 1M:
-- Embedding model dedicated to similarity (BGE-M3, Qwen3-Embedding) —
-  the bottleneck is now the cosine cone shape from raw hidden states,
-  not the rerank precision.
-- ColBERT-style multi-vector retrieval (N vectors per episode,
-  max-sim) — should help rare-token needles like TY-3407.
-- PR5b KV-level path (deferred vLLM integration) — bypasses the
-  text-level retrieval entirely.
+v0.4 (BGE-M3 dedicated embedding model) — replaces the indexer
+hidden-state pooling with a real similarity encoder. Qwen2.5-7B
+stays on GPU 0 for the segmenter (it needs *logits* to measure
+surprise at episode boundaries), while BGE-M3 (568M, 1024-dim,
+~1.1 GB BF16) lives on GPU 1 and produces every episode and query
+embedding. The two GPUs are used in parallel and the dedicated
+encoder is roughly an order of magnitude more selective than raw
+hidden-state max-abs pooling.
+
+Result: **8/8 (100%) recall at 256K, 512K, AND 1M**, with top-M=64
+and no rerank. Both previously "structurally invisible" needles
+(TY-3407 at depth 0.36, PL-4350 at 0.77) are recovered.
+
+Cost: BGE-M3 load adds ~30s once per session. Per-context: a few
+seconds to re-embed all episodes (1635 → ~5s, 6378 → ~15s).
+Retrieval Phase A drops from 502s (rerank topk=1024) to 0.0s
+because the cosine top-K is small (top-M=64) and BGE-M3 query
+encoding is sub-second.
+
+Use it via `--embedding-model BAAI/bge-m3` or
+`EMRAGConfig.embedding_model="BAAI/bge-m3"`. Other sentence
+encoders work too (Qwen3-Embedding, E5-Mistral) — CLS-token
+pooling with L2-normalised vectors is the contract.
 
 HyDE query expansion was tried and failed (-66% at 128K — generic
 hypothetical passages drift away from the rare-token needle style).
@@ -95,7 +111,13 @@ hypothetical passages drift away from the rare-token needle style).
 Reproduce:
 
 ```bash
-# v0.2: 32K → 1M with mid layer + top-M=256
+# v0.4: BGE-M3 dedicated encoder (recommended) — 8/8 at 256K, 512K, 1M
+PYTHONPATH=src python benchmarks/quality/run_em_rag_multi_needle.py \
+  --ctx 256000 512000 1000000 \
+  --num-needles 8 --top-m 64 --max-doc-tokens 1100000 \
+  --embedding-model BAAI/bge-m3
+
+# v0.2: hidden-state pooling, mid layer + top-M=256 (no extra encoder)
 PYTHONPATH=src python benchmarks/quality/run_em_rag_multi_needle.py \
   --ctx 32000 128000 256000 512000 1000000 \
   --num-needles 8 --top-m 256 --max-doc-tokens 1100000

@@ -56,7 +56,8 @@ TMP_DIR = Path("/tmp")
 def phase_a_retrieve(args) -> Path:
     """Build indices + retrieve, write retrieval JSON for phase B."""
     from helix.em_rag import (
-        EMRAGConfig, _load_indexer, build_index, retrieve_episode_texts,
+        EMRAGConfig, _load_indexer, _load_embedding_model,
+        build_index, retrieve_episode_texts,
     )
     from transformers import AutoTokenizer
 
@@ -74,6 +75,7 @@ def phase_a_retrieve(args) -> Path:
         rerank=args.rerank,
         rerank_topk=args.rerank_topk,
         rerank_max_episode_chars=args.rerank_max_episode_chars,
+        embedding_model=args.embedding_model,
     )
     grading_tok = AutoTokenizer.from_pretrained(args.generator)
 
@@ -85,12 +87,17 @@ def phase_a_retrieve(args) -> Path:
         "pool_alpha": args.pool_alpha, "indexer_layer": args.indexer_layer,
         "hyde": args.hyde, "hyde_max_tokens": args.hyde_max_tokens,
         "rerank": args.rerank, "rerank_topk": args.rerank_topk,
+        "embedding_model": args.embedding_model,
         "ctxs": [],
     }
 
     print(f"=== Phase A: HF indexer ({args.indexer}) ===")
     t0 = time.time()
     model, tokenizer = _load_indexer(em_cfg)
+    emb_model, emb_tok = (None, None)
+    if em_cfg.embedding_model:
+        print(f"=== Loading embedding model ({em_cfg.embedding_model}) on {em_cfg.embedding_device} ===")
+        emb_model, emb_tok = _load_embedding_model(em_cfg)
     try:
         for ctx in args.ctx:
             print(f"\n--- ctx={ctx:,} ---")
@@ -99,7 +106,10 @@ def phase_a_retrieve(args) -> Path:
             actual = len(grading_tok.encode(prompt))
             print(f"  prompt length: {len(prompt):,} chars / {actual:,} tok")
             t_idx0 = time.time()
-            index = build_index(prompt, em_cfg, model=model, tokenizer=tokenizer)
+            index = build_index(
+                prompt, em_cfg, model=model, tokenizer=tokenizer,
+                embedding_model=emb_model, embedding_tokenizer=emb_tok,
+            )
             t_idx = time.time() - t_idx0
             print(f"  indexed: {index.store.num_episodes} episodes "
                   f"in {t_idx:.1f}s ({actual/t_idx:.0f} tok/s)")
@@ -109,7 +119,9 @@ def phase_a_retrieve(args) -> Path:
             for n in needles:
                 texts, ranges = retrieve_episode_texts(
                     index, n["question"], em_cfg,
-                    model=model, tokenizer=tokenizer)
+                    model=model, tokenizer=tokenizer,
+                    embedding_model=emb_model, embedding_tokenizer=emb_tok,
+                )
                 retrieval_per_q.append({
                     "question": n["question"],
                     "value": n["value"],
@@ -129,6 +141,8 @@ def phase_a_retrieve(args) -> Path:
             del index
     finally:
         del model
+        if emb_model is not None:
+            del emb_model
         torch.cuda.empty_cache()
 
     print(f"\nPhase A done in {time.time()-t0:.1f}s total")
@@ -185,9 +199,13 @@ def phase_b_generate(cache_path: Path, gmu: float) -> Path:
     layer_tag = payload.get("indexer_layer", "last")
     hyde_tag = "_hyde" if payload.get("hyde") else ""
     rerank_tag = f"_rerank{payload.get('rerank_topk', 0)}" if payload.get("rerank") else ""
+    emb_tag = ""
+    if payload.get("embedding_model"):
+        # Sanitize: "BAAI/bge-m3" → "bge-m3"
+        emb_tag = "_emb-" + payload["embedding_model"].split("/")[-1].replace("/", "-")
     out_path = (
         RESULTS_DIR
-        / f"em_rag_multi_needle_topm{safe_topm}_pool-{pool_tag}_layer-{layer_tag}{hyde_tag}{rerank_tag}_{ts}.json"
+        / f"em_rag_multi_needle_topm{safe_topm}_pool-{pool_tag}_layer-{layer_tag}{hyde_tag}{rerank_tag}{emb_tag}_{ts}.json"
     )
     answers_payload["ts"] = ts
     out_path.write_text(json.dumps(answers_payload, indent=2))
@@ -234,6 +252,10 @@ def main() -> None:
                    help="cosine top-K before rerank (default: 256)")
     p.add_argument("--rerank-max-episode-chars", type=int, default=2000,
                    help="truncate long episodes for the rerank prompt")
+    p.add_argument("--embedding-model", default=None,
+                   help="dedicated similarity encoder for episode/query "
+                        "embeddings (e.g., BAAI/bge-m3). Replaces the "
+                        "indexer hidden-state pooling entirely.")
     p.add_argument("--phase", choices=["all", "a", "b"], default="all",
                    help="'all' = run A then re-exec B in subprocess; "
                         "'a' = only HF indexing+retrieval; "
