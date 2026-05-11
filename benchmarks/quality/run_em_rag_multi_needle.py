@@ -69,6 +69,8 @@ def phase_a_retrieve(args) -> Path:
         query_pool=args.query_pool,
         pool_alpha=args.pool_alpha,
         indexer_layer=args.indexer_layer,
+        hyde=args.hyde,
+        hyde_max_tokens=args.hyde_max_tokens,
     )
     grading_tok = AutoTokenizer.from_pretrained(args.generator)
 
@@ -78,6 +80,7 @@ def phase_a_retrieve(args) -> Path:
         "seed": args.seed, "max_tokens": args.max_tokens,
         "pool": args.pool, "query_pool": args.query_pool,
         "pool_alpha": args.pool_alpha, "indexer_layer": args.indexer_layer,
+        "hyde": args.hyde, "hyde_max_tokens": args.hyde_max_tokens,
         "ctxs": [],
     }
 
@@ -176,9 +179,10 @@ def phase_b_generate(cache_path: Path, gmu: float) -> Path:
     safe_topm = payload["top_m"]
     pool_tag = payload.get("pool", "max-abs").replace("+", "_")
     layer_tag = payload.get("indexer_layer", "last")
+    hyde_tag = "_hyde" if payload.get("hyde") else ""
     out_path = (
         RESULTS_DIR
-        / f"em_rag_multi_needle_topm{safe_topm}_pool-{pool_tag}_layer-{layer_tag}_{ts}.json"
+        / f"em_rag_multi_needle_topm{safe_topm}_pool-{pool_tag}_layer-{layer_tag}{hyde_tag}_{ts}.json"
     )
     answers_payload["ts"] = ts
     out_path.write_text(json.dumps(answers_payload, indent=2))
@@ -214,6 +218,11 @@ def main() -> None:
     p.add_argument("--indexer-layer", default="mid",
                    choices=["last", "mid", "multi-last4", "multi-mid4"],
                    help="which layer's hidden state to use (default: mid)")
+    p.add_argument("--hyde", action="store_true",
+                   help="enable HyDE query expansion (generate hypothetical "
+                        "passage + embed that instead of bare question)")
+    p.add_argument("--hyde-max-tokens", type=int, default=48,
+                   help="max tokens of hypothetical-passage continuation")
     p.add_argument("--phase", choices=["all", "a", "b"], default="all",
                    help="'all' = run A then re-exec B in subprocess; "
                         "'a' = only HF indexing+retrieval; "

@@ -68,6 +68,18 @@ class EMRAGConfig:
     indexer_layer: str = "mid"      # "last" | "mid" | "multi-last4" | "multi-mid4"
     chunk_size: int = 8192          # how many tokens of doc to forward at once
     max_doc_tokens: int = 200_000   # safety cap on indexed length
+    # HyDE (Hypothetical Document Embeddings) query expansion: generate a short
+    # hypothetical answer to the question with the indexer model and embed the
+    # full (template + question + answer) string. The hypothetical text bridges
+    # the lexical/style gap between the question form and the doc-passage form
+    # of the needle. Costs ~1 forward.generate(max_new_tokens=hyde_max_tokens)
+    # per query.
+    hyde: bool = False
+    hyde_max_tokens: int = 48
+    hyde_template: str = (
+        "Below is a question and a likely passage that would contain its answer.\n\n"
+        "Question: {question}\nPassage: "
+    )
 
 
 @dataclass
@@ -272,7 +284,24 @@ def retrieve_episode_texts(
     owns_model = model is None
     if owns_model:
         model, tokenizer = _load_indexer(cfg)
-    q_ids = tokenizer.encode(question, return_tensors="pt").to(cfg.indexer_device)
+
+    if cfg.hyde:
+        # Generate a short hypothetical-passage continuation, then embed
+        # the full (template + question + hypothetical passage) sequence.
+        # Pads with eos for tokenizers without a dedicated pad token.
+        prompt = cfg.hyde_template.format(question=question)
+        prompt_ids = tokenizer.encode(prompt, return_tensors="pt").to(cfg.indexer_device)
+        eos = tokenizer.eos_token_id or 0
+        with torch.no_grad():
+            gen = model.generate(
+                prompt_ids,
+                max_new_tokens=cfg.hyde_max_tokens,
+                do_sample=False,
+                pad_token_id=eos,
+            )
+        q_ids = gen
+    else:
+        q_ids = tokenizer.encode(question, return_tensors="pt").to(cfg.indexer_device)
     with torch.no_grad():
         q_out = model(q_ids, output_hidden_states=True, use_cache=False)
     q_hidden = _select_hidden_chunk(q_out.hidden_states, cfg.indexer_layer)
