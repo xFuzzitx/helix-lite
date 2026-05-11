@@ -167,5 +167,134 @@ class KVQuantCompactImpl(FlashAttentionImpl):
             slot_mapping[:num_actual].to(torch.int64).contiguous(), abs_positions,
         )
 
-    # v1: keep forward identical to FA (use vLLM's fp16 cache). Decode-side
-    # Quest hookup lands in v1.1 once we verify the write side at scale.
+    def forward(
+        self,
+        layer: torch.nn.Module,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        kv_cache: torch.Tensor,
+        attn_metadata,
+        output: torch.Tensor,
+        output_scale: torch.Tensor | None = None,
+        output_block_scale: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """v2 decode path: read selected blocks from compact pool via Quest.
+
+        Fallbacks to super() for: profiling runs, prefill (max_query_len
+        > 1), batch size > 1 (TODO multi-seq), or when ``_TOP_K == 0``.
+        """
+        if (_COMPACT_POOL is None or attn_metadata is None
+                or _TOP_K == 0 or key.numel() == 0):
+            return super().forward(
+                layer, query, key, value, kv_cache, attn_metadata,
+                output, output_scale, output_block_scale,
+            )
+
+        # Only intercept decode steps with batch=1 for v2
+        max_q = getattr(attn_metadata, "max_query_len", 0)
+        block_table = getattr(attn_metadata, "block_table", None)
+        seq_lens = getattr(attn_metadata, "seq_lens", None)
+        if (max_q != 1 or block_table is None or seq_lens is None
+                or block_table.shape[0] != 1):
+            return super().forward(
+                layer, query, key, value, kv_cache, attn_metadata,
+                output, output_scale, output_block_scale,
+            )
+
+        idx = _layer_index(layer)
+        if idx is None or idx >= _COMPACT_POOL.num_layers:
+            return super().forward(
+                layer, query, key, value, kv_cache, attn_metadata,
+                output, output_scale, output_block_scale,
+            )
+
+        BS = _COMPACT_POOL.block_size
+        H_kv = _COMPACT_POOL.num_kv_heads
+        D = _COMPACT_POOL.head_size
+        seq_len = int(seq_lens[0].item())
+        num_used = (seq_len + BS - 1) // BS
+        if num_used <= max(_SINK_BLOCKS, _TOP_K):
+            # Sequence shorter than our threshold — no pruning benefit
+            return super().forward(
+                layer, query, key, value, kv_cache, attn_metadata,
+                output, output_scale, output_block_scale,
+            )
+        used_block_ids = block_table[0, :num_used].to(torch.int64)
+
+        # GQA: group the num_heads queries down to num_kv_heads via mean
+        # (the upper-bound is conservative so any contraction is safe).
+        num_actual = attn_metadata.num_actual_tokens
+        q1 = query[:num_actual][0]  # (num_heads, D)
+        num_heads = q1.shape[0]
+        groups = num_heads // H_kv
+        q_grouped = q1.reshape(H_kv, groups, D).mean(dim=1).to(torch.float16)
+
+        selected, first_pos = select_top_blocks_for_layer(
+            _COMPACT_POOL, idx, q_grouped, used_block_ids,
+            block_size=BS, top_k=_TOP_K, sink_blocks=_SINK_BLOCKS,
+        )
+        NK = int(selected.shape[0])
+
+        # Unpack into a per-forward fp16 staging that mimics a paged pool
+        staging_k = torch.empty((NK, BS, H_kv, D), dtype=torch.float16,
+                                 device=query.device)
+        staging_v = torch.empty_like(staging_k)
+        _COMPACT_POOL.unpack_to_staging(
+            idx, selected, first_pos, staging_k, staging_v,
+        )
+
+        # Build remapped block_table that indexes into staging: [[0..NK-1]]
+        remapped_block_table = torch.arange(
+            NK, device=query.device, dtype=block_table.dtype
+        ).unsqueeze(0).contiguous()
+
+        # The last *original* used block may be partial; if it's selected,
+        # the staging entry at its sorted position has trailing garbage
+        # past `last_block_size`. Compute the effective length so FA's
+        # softmax masks the garbage out.
+        last_block_id = int(used_block_ids[-1].item())
+        last_block_size = seq_len - (num_used - 1) * BS  # 1..BS
+        last_in_sel = (selected == last_block_id).nonzero(as_tuple=True)[0]
+        if last_in_sel.numel() > 0 and int(last_in_sel.item()) == NK - 1:
+            effective_k = (NK - 1) * BS + last_block_size
+        else:
+            effective_k = NK * BS
+        remapped_seq_lens = torch.tensor(
+            [effective_k], device=query.device, dtype=seq_lens.dtype,
+        )
+
+        from vllm.vllm_flash_attn import flash_attn_varlen_func  # noqa: E402
+
+        cu_seqlens_q = attn_metadata.query_start_loc
+        descale_shape = (cu_seqlens_q.shape[0] - 1, H_kv)
+        # Mirror Phase 1A's pattern for descale tensors
+        k_descale = layer._k_scale.expand(descale_shape)
+        v_descale = layer._v_scale.expand(descale_shape)
+
+        sliding_window_size = (
+            list(self.sliding_window) if self.sliding_window is not None
+            else None
+        )
+        flash_attn_varlen_func(
+            q=query[:num_actual],
+            k=staging_k,
+            v=staging_v,
+            out=output[:num_actual],
+            cu_seqlens_q=cu_seqlens_q,
+            max_seqlen_q=1,
+            seqused_k=remapped_seq_lens,
+            max_seqlen_k=effective_k,
+            softmax_scale=self.scale,
+            causal=attn_metadata.causal,
+            alibi_slopes=self.alibi_slopes,
+            window_size=sliding_window_size,
+            block_table=remapped_block_table,
+            softcap=self.logits_soft_cap,
+            fa_version=self.vllm_flash_attn_version,
+            k_descale=k_descale,
+            v_descale=v_descale,
+            num_splits=attn_metadata.max_num_splits,
+            s_aux=self.sinks,
+        )
+        return output

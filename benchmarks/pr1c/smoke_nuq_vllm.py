@@ -48,6 +48,11 @@ def main() -> int:
                         "Validates pack-on-write integration end-to-end.")
     p.add_argument("--compact-num-blocks", type=int, default=20_000,
                    help="num_blocks for the compact pool (each = block_size tokens)")
+    p.add_argument("--top-k-blocks", type=int, default=0,
+                   help="Quest top-K blocks to keep at decode (v2 read path). "
+                        "0 disables Quest pruning — decode uses vLLM's fp16 cache.")
+    p.add_argument("--sink-blocks", type=int, default=4,
+                   help="StreamingLLM-style leading blocks always kept (default 4)")
     args = p.parse_args()
 
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
@@ -66,7 +71,9 @@ def main() -> int:
             str(args.scales),
             num_layers=28, num_blocks=args.compact_num_blocks,
             block_size=16, num_kv_heads=4, head_size=128,
-            device=args.device, top_k_blocks_decode=0,
+            device=args.device,
+            top_k_blocks_decode=args.top_k_blocks,
+            sink_blocks=args.sink_blocks,
         )
         print("[smoke] PR1c Phase 1B v1 compact backend installed")
     else:
