@@ -18,6 +18,12 @@ class VanillaConfig:
     gpu_memory_utilization: float = 0.85
     tensor_parallel_size: int = 1
     enforce_eager: bool = True
+    # If set, install the KVQuant math-wrapper before LLM() so every K/V
+    # round-trips through the calibrated nuq quant→dequant. Cache stays
+    # fp16 (no VRAM win yet — that's Phase 1B). Use to validate calibration
+    # quality at scale, or to A/B against the baseline AWQ path.
+    nuq_scales: str | None = None
+    nuq_device: str = "cuda:0"
 
 
 class VanillaSession:
@@ -34,6 +40,16 @@ class VanillaSession:
         os.environ.setdefault("VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS", "0")
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+        if self.cfg.nuq_scales:
+            # Must run before LLM() constructs the attention backend.
+            import sys
+            from pathlib import Path
+            src = Path(__file__).resolve().parent.parent / "src"
+            if str(src) not in sys.path:
+                sys.path.insert(0, str(src))
+            from kvquant.vllm_backend import install_kvquant_backend
+            install_kvquant_backend(self.cfg.nuq_scales, device=self.cfg.nuq_device)
 
         from transformers import AutoTokenizer
         from vllm import LLM

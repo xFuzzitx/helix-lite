@@ -28,6 +28,14 @@ install_kvquant_backend("scales/qwen2_5_7b_1m_nuq4_v3.pt", device="cuda:0")
 
 The cache stays fp16 so the FA kernels need zero changes. Every cache *write* is the quant→dequant'd version, so subsequent reads attend over the same numbers a real compact-pool implementation would produce — Phase 1A is the math-correctness anchor before we touch the allocator.
 
+## What we ship in the CLI today
+
+`helix-cli --doc <file> --nuq-scales <scales.pt> "<question>"` wires
+Phase 1A into the queryable model. Recommended scales after the
+2026-05-11 autoloop: `scales/mixed_nuq2v3_nuq4v3_cut16.pt`
+(16 shallow layers nuq2 + 12 deep layers nuq4, 6.29× weighted
+nominal compression, NIAH ✓ at 4K/32K/128K/256K).
+
 ## Phase 1B — the path to true 1M
 
 vLLM 0.20.1 v1 stores KV in paged blocks (typically 16 tokens per block) accessed through a `BlockTable`. The relevant entry points (mapped 2026-05-11 against vLLM 0.20.1):
@@ -55,6 +63,12 @@ vLLM 0.20.1 v1 stores KV in paged blocks (typically 16 tokens per block) accesse
 ### Why Phase 1B is gated on Phase 1A passing
 
 Phase 1A proves the **math** integrates (correct scales × correct kernels × correct layer routing). Phase 1B is purely a **memory-layout** engineering problem after that. Running Phase 1B without Phase 1A is how you ship a 256K → 1M jump and discover three weeks in that the V-scale gather has been wrong for layers 14-27 the whole time.
+
+### Why a "halfway Phase 1B" doesn't work
+
+Any compact-pool implementation that **materialises a fp16 staging buffer** for `flash_attn_varlen_func` to read pays peak VRAM = compact pool + staging. At 1M decode the staging needs to span the whole sequence (FA reads all blocks), so the peak is the same as the original fp16 pool — *no net win*. The win only appears when the dequant happens **inside** the attention kernel as it walks blocks, which is the fused-kernel work in step 2 of the cost estimate above.
+
+For prefill-only / chunked-prefill workflows, a "compact pool + per-chunk staging" intermediate would work because each chunk's referenced block set is small. But for the user-facing "load 1M doc, ask one question" path the bottleneck is the decode step. So Phase 1B.1 (correctness anchor, no VRAM win) and Phase 1B.2 (fused kernel, real win) are stages of the same project — there's no shippable intermediate that delivers measurable VRAM savings at 1M without the fused kernel.
 
 ## Why nuq2 calibration is its own task
 

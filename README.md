@@ -150,6 +150,13 @@ Once the venv is set up (see *Setup* below), the CLI is one command:
 
 # multi-turn shell over a single document
 ./helix-cli --doc paper.pdf.txt --repl
+
+# PR1c math-wrapper: route K/V through calibrated nuq quant→dequant
+# in vLLM's attention. Validates calibration up to 256K; fp16 pool
+# unchanged so no VRAM savings until Phase 1B (fused-dequant kernel).
+./helix-cli --doc paper.pdf.txt \
+  --nuq-scales scales/mixed_nuq2v3_nuq4v3_cut16.pt \
+  "Your question"
 ```
 
 First run downloads `graelo/Qwen2.5-7B-Instruct-1M-AWQ` (≈ 5 GB) to

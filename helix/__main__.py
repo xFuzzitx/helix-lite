@@ -35,6 +35,16 @@ def main() -> int:
                    help="cap on indexed document length when --em-rag")
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument("--repl", action="store_true", help="interactive multi-turn shell")
+    p.add_argument("--nuq-scales", type=str, default=None,
+                   help="optional KVScales .pt path. Installs the PR1c Phase 1A "
+                        "math-wrapper so every K/V round-trips through nuq "
+                        "quant→dequant. Validates calibration at scale; the "
+                        "fp16 KV pool is unchanged so no VRAM savings yet. "
+                        "Winning recipe: scales/mixed_nuq2v3_nuq4v3_cut16.pt")
+    p.add_argument("--max-model-len", type=int, default=128_000)
+    p.add_argument("--gmu", type=float, default=0.85,
+                   help="gpu_memory_utilization for vLLM (default 0.85; "
+                        "bump to 0.92 if using a single dedicated GPU)")
     args = p.parse_args()
 
     document = None
@@ -63,7 +73,11 @@ def _run_one(question: str, document: str | None, args: argparse.Namespace) -> i
         print(f"\n{result['answer']}")
     else:
         from .vanilla import VanillaSession, VanillaConfig
-        session = VanillaSession(VanillaConfig())
+        session = VanillaSession(VanillaConfig(
+            nuq_scales=args.nuq_scales,
+            max_model_len=args.max_model_len,
+            gpu_memory_utilization=args.gmu,
+        ))
         ans = session.query(question, document,
                              max_tokens=args.max_tokens,
                              temperature=args.temperature)
