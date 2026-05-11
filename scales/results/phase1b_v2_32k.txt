@@ -1,0 +1,21 @@
+PR1c Phase 1B v2 compact+Quest smoke (2026-05-11)
+==================================================
+Scales : scales/mixed_nuq2v3_nuq4v3_cut16.pt
+Pool   : 28L × 2 × 2200B × 16T × 4H × 128D uint8 + outliers fp16
+Quest  : top_k_blocks_decode=128, sink_blocks=4
+
+ctx     actual_tok   used_blocks  Quest_kept  pct_kept  verdict
+ 4 K       3,516         220        128+4       60.0%   ✓ BANANA-7311 (1.1 s)
+32 K      28,581       1,787        128+4        7.4%   ✓ BANANA-7890 (8.7 s)
+
+Both ctx survive end-to-end through:
+  do_kv_cache_update  → pack_k/pack_v Triton kernels write to compact pool
+  forward (decode)    → select_top_blocks_for_layer (Quest) → unpack_to_staging
+                        → flash_attn_varlen_func on staging w/ remapped block_table
+
+128K not yet tested: at 128K the compact pool (~13 GB at 8000-block
+capacity) + vLLM's fp16 pool (~7 GB) + AWQ weights (5.4 GB) overshoots
+24 GB. The fix is Phase 1B v3 — free vLLM's pool entirely so only the
+compact pool holds KV. v3 work tracked in src/kvquant/PHASE_1B_DESIGN.md.
+
+Wall-clock parity with Phase 1A at the same ctx (Phase 1A 32K = 8.7 s).
