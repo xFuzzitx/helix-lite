@@ -1,0 +1,28 @@
+mixed_v3_cut16 — nuq2 (L0-15) + nuq4 (L16-27)
+=============================================
+Generated 2026-05-11 via:
+  benchmarks/pr1c/mix_scales.py
+    --shallow scales/qwen2_5_7b_1m_nuq2_v3.pt
+    --deep    scales/qwen2_5_7b_1m_nuq4_v3.pt
+    --cut 20  # the autoloop tried cuts 20, 16; cut=16 was the winner
+
+validate_scales.py (HF Qwen2.5-7B-Instruct-1M @ 2K NIAH):
+  q_needle: YES  (baseline: YES)
+  layer-27 V mean err: small (nuq4 there)
+  layer-0..15 K/V: nuq2 reconstruction, layer-16..27: nuq4 reconstruction
+
+vLLM Phase 1A smoke (graelo/Qwen2.5-7B-Instruct-1M-AWQ):
+   ctx       actual_tok   verdict     elapsed
+    4K       3,516        ✓ (BANANA-7311)    1.1 s
+   32K       28,581       ✓ (BANANA-7890)    8.7 s
+  128K       114,524      ✓ (BANANA-1663)   62.8 s
+  256K       229,113      ✓ (BANANA-5242)  196.6 s
+
+Compression vs fp16 (uniform across layers, not yet bit-packed):
+  nuq2  alone   8× nominal
+  nuq4  alone   4× nominal
+  mixed cut=16  (16×8 + 12×4) / 28 = 6.29× weighted nominal
+
+Phase 1A keeps the KV pool fp16, so the smoke confirms math only — the
+6.29× compression unlocks only after Phase 1B writes the compact pool
+and the fused-dequant attention kernel.

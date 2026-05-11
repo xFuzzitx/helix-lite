@@ -1,0 +1,47 @@
+[
+  {
+    "round": 0,
+    "name": "nuq2_v3",
+    "scales": "/home/ssatanss/Documents/llm_research/helix-lite/scales/qwen2_5_7b_1m_nuq2_v3.pt",
+    "ts": "20260511-201259",
+    "validate": {
+      "rc": 0,
+      "log_path": "/home/ssatanss/Documents/llm_research/helix-lite/logs/pr1c_nuq2_v3_validate.log",
+      "baseline_needle": "NO",
+      "q_needle": "NO",
+      "passed": false,
+      "l27_v_mean": null
+    },
+    "smoke": null
+  },
+  {
+    "round": 1,
+    "name": "mixed_v3_cut20",
+    "scales": "/home/ssatanss/Documents/llm_research/helix-lite/scales/mixed_nuq2v3_nuq4v3_cut20.pt",
+    "ts": "20260511-201325",
+    "validate": {
+      "rc": 0,
+      "log_path": "/home/ssatanss/Documents/llm_research/helix-lite/logs/pr1c_mixed_v3_cut20_validate.log",
+      "baseline_needle": "NO",
+      "q_needle": "NO",
+      "passed": false,
+      "l27_v_mean": null
+    },
+    "smoke": null
+  },
+  {
+    "round": 2,
+    "name": "mixed_v3_cut16",
+    "scales": "/home/ssatanss/Documents/llm_research/helix-lite/scales/mixed_nuq2v3_nuq4v3_cut16.pt",
+    "ts": "20260511-201352",
+    "validate": {
+      "rc": 0,
+      "log_path": "/home/ssatanss/Documents/llm_research/helix-lite/logs/pr1c_mixed_v3_cut16_validate.log",
+      "baseline_needle": "NO",
+      "q_needle": "YES",
+      "passed": true,
+      "l27_v_mean": null
+    },
+    "smoke": null
+  }
+]
