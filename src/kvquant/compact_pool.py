@@ -287,6 +287,114 @@ def _pack_k_slot_kernel(
     tl.atomic_max(k_max_ptr + stat_off, recon, mask=mask_d, sem="relaxed")
 
 
+# --- unpack on read (selective blocks) -----------------------------------
+
+@triton.jit
+def _unpack_k_block_kernel(
+    k_codes_ptr,         # (num_blocks_pool, BS, H, D) uint8
+    k_outv_ptr,
+    k_outm_ptr,
+    k_poles_ptr,         # (H, D, NL)
+    block_id_list_ptr,   # (NK,) int64
+    staging_k_ptr,       # (NK, BS, H, D) fp16
+    BLOCK_SIZE: tl.constexpr,
+    H: tl.constexpr,
+    D: tl.constexpr,
+    NL: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    """Unpack the BS positions of one selected block, for one head, for
+    a tile of D channels."""
+    pid_k = tl.program_id(0)    # which kept block
+    pid_h = tl.program_id(1)
+    pid_d = tl.program_id(2)
+    offs_d = pid_d * BLOCK_D + tl.arange(0, BLOCK_D)
+    mask_d = offs_d < D
+
+    block_id = tl.load(block_id_list_ptr + pid_k)
+
+    # Loop over the BS positions in the block (BLOCK_SIZE is constexpr,
+    # so this unrolls)
+    for pos in tl.static_range(BLOCK_SIZE):
+        in_off = (block_id * BLOCK_SIZE * H * D
+                  + pos * H * D
+                  + pid_h * D
+                  + offs_d)
+        codes = tl.load(k_codes_ptr + in_off, mask=mask_d, other=0).to(tl.int32)
+        outv = tl.load(k_outv_ptr + in_off, mask=mask_d, other=0.0).to(tl.float32)
+        outm = tl.load(k_outm_ptr + in_off, mask=mask_d, other=0).to(tl.int32)
+
+        # Gather poles by code; unroll over levels
+        recon = tl.zeros((BLOCK_D,), dtype=tl.float32)
+        for lvl in tl.static_range(NL):
+            pole = tl.load(k_poles_ptr + pid_h * D * NL + offs_d * NL + lvl,
+                           mask=mask_d, other=0.0).to(tl.float32)
+            match = codes == lvl
+            recon = tl.where(match, pole, recon)
+        final = tl.where(outm != 0, outv, recon)
+
+        out_off = (pid_k * BLOCK_SIZE * H * D
+                   + pos * H * D
+                   + pid_h * D
+                   + offs_d)
+        tl.store(staging_k_ptr + out_off, final.to(tl.float16), mask=mask_d)
+
+
+@triton.jit
+def _unpack_v_block_kernel(
+    v_codes_ptr,
+    v_outv_ptr,
+    v_outm_ptr,
+    v_poles_ptr,         # (H, T_cal, NL)
+    block_id_list_ptr,   # (NK,) int64
+    block_first_pos_ptr, # (NK,) int64 — absolute start position of each kept block
+    staging_v_ptr,
+    BLOCK_SIZE: tl.constexpr,
+    H: tl.constexpr,
+    D: tl.constexpr,
+    T_CAL: tl.constexpr,
+    NL: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    pid_k = tl.program_id(0)
+    pid_h = tl.program_id(1)
+    pid_d = tl.program_id(2)
+    offs_d = pid_d * BLOCK_D + tl.arange(0, BLOCK_D)
+    mask_d = offs_d < D
+
+    block_id = tl.load(block_id_list_ptr + pid_k)
+    block_start = tl.load(block_first_pos_ptr + pid_k)
+
+    for pos in tl.static_range(BLOCK_SIZE):
+        # Per-token absolute position for V scale lookup
+        abs_pos = block_start + pos
+        # Clamp to T_cal - 1 for tail extrapolation
+        clamped_pos = tl.minimum(abs_pos, T_CAL - 1)
+
+        in_off = (block_id * BLOCK_SIZE * H * D
+                  + pos * H * D
+                  + pid_h * D
+                  + offs_d)
+        codes = tl.load(v_codes_ptr + in_off, mask=mask_d, other=0).to(tl.int32)
+        outv = tl.load(v_outv_ptr + in_off, mask=mask_d, other=0.0).to(tl.float32)
+        outm = tl.load(v_outm_ptr + in_off, mask=mask_d, other=0).to(tl.int32)
+
+        # V poles are shared across D — gather one scalar pole per level
+        recon = tl.zeros((BLOCK_D,), dtype=tl.float32)
+        for lvl in tl.static_range(NL):
+            pole_addr = pid_h * T_CAL * NL + clamped_pos * NL + lvl
+            pole = tl.load(v_poles_ptr + pole_addr).to(tl.float32)
+            match = codes == lvl
+            recon = tl.where(match, pole, recon)
+        final = tl.where(outm != 0, outv, recon)
+
+        out_off = (pid_k * BLOCK_SIZE * H * D
+                   + pos * H * D
+                   + pid_h * D
+                   + offs_d)
+        tl.store(staging_v_ptr + out_off, final.to(tl.float16), mask=mask_d)
+
+
 @dataclass
 class CompactKVPool:
     """A user-managed paged KV cache holding nuq codes + dense outliers.
@@ -377,5 +485,53 @@ class CompactKVPool:
             self.v_codes[layer_idx], self.v_outv[layer_idx], self.v_outm[layer_idx],
             slot_mapping.to(torch.int64).contiguous(),
             BLOCK_SIZE=self.block_size, H=H, D=D, T_CAL=T_cal,
+            NL=self._v_levels[layer_idx], BLOCK_D=BLOCK_D,
+        )
+
+    # -- read side --
+    def unpack_to_staging(
+        self,
+        layer_idx: int,
+        block_id_list: torch.Tensor,        # (NK,) int64
+        block_first_position: torch.Tensor, # (NK,) int64 — abs token pos of slot 0
+        staging_k: torch.Tensor,            # (NK, BS, H, D) fp16
+        staging_v: torch.Tensor,            # (NK, BS, H, D) fp16
+    ) -> None:
+        """Dequantise the selected blocks for one layer into ``staging_*``.
+
+        The caller picks which blocks to keep (top-K from Quest) and
+        passes their ids + each block's absolute starting token
+        position (for V's per-token scale gather).
+        """
+        assert layer_idx < self.num_layers
+        NK = block_id_list.shape[0]
+        BS = self.block_size
+        H = self.num_kv_heads
+        D = self.head_size
+        BLOCK_D = min(64, D)
+        assert staging_k.shape == (NK, BS, H, D), \
+            f"staging_k shape {staging_k.shape} != ({NK},{BS},{H},{D})"
+        assert staging_v.shape == staging_k.shape
+
+        k_scale = self.scales.per_layer_keys[layer_idx]
+        v_scale = self.scales.per_layer_values[layer_idx]
+        T_cal = v_scale.poles.shape[1]
+
+        grid = (NK, H, triton.cdiv(D, BLOCK_D))
+        _unpack_k_block_kernel[grid](
+            self.k_codes[layer_idx], self.k_outv[layer_idx], self.k_outm[layer_idx],
+            k_scale.poles,
+            block_id_list.to(torch.int64).contiguous(),
+            staging_k,
+            BLOCK_SIZE=BS, H=H, D=D,
+            NL=self._k_levels[layer_idx], BLOCK_D=BLOCK_D,
+        )
+        _unpack_v_block_kernel[grid](
+            self.v_codes[layer_idx], self.v_outv[layer_idx], self.v_outm[layer_idx],
+            v_scale.poles,
+            block_id_list.to(torch.int64).contiguous(),
+            block_first_position.to(torch.int64).contiguous(),
+            staging_v,
+            BLOCK_SIZE=BS, H=H, D=D, T_CAL=T_cal,
             NL=self._v_levels[layer_idx], BLOCK_D=BLOCK_D,
         )

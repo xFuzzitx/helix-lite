@@ -133,6 +133,68 @@ def test_compact_pool_pack_round_trip():
                                            atol=1e-2, rtol=1e-2)
 
 
+def test_compact_pool_pack_unpack_round_trip():
+    """Pack tokens, then unpack the blocks via the staging kernel.
+    Each (block, position, head, dim) should match the in-flight
+    reference quant→dequant on the same input."""
+    torch.manual_seed(2)
+    L, NB, BS, H, D = 1, 3, 8, 2, 16
+    T_cal = 64
+    scales = _make_tiny_scales(L=L, H=H, D=D, T_cal=T_cal)
+    pool = CompactKVPool(num_layers=L, num_blocks=NB, block_size=BS,
+                          num_kv_heads=H, head_size=D, scales=scales)
+
+    # Fill blocks 0 and 1 (slots 0..15) — leave block 2 empty
+    T = 16
+    key = torch.randn(T, H, D, dtype=torch.float16, device="cuda")
+    value = torch.randn_like(key)
+    slot_mapping = torch.arange(T, dtype=torch.int64, device="cuda")
+    abs_positions = torch.arange(T, dtype=torch.int64, device="cuda")
+    pool.write_kv(0, key, value, slot_mapping, abs_positions)
+
+    # Unpack blocks 0 and 1
+    block_id_list = torch.tensor([0, 1], dtype=torch.int64, device="cuda")
+    block_first_position = torch.tensor([0, BS], dtype=torch.int64, device="cuda")
+    NK = block_id_list.shape[0]
+    staging_k = torch.empty((NK, BS, H, D), dtype=torch.float16, device="cuda")
+    staging_v = torch.empty_like(staging_k)
+    pool.unpack_to_staging(0, block_id_list, block_first_position,
+                            staging_k, staging_v)
+
+    # Compare against in-flight reference for every position
+    k_scale = scales.per_layer_keys[0]
+    v_scale = scales.per_layer_values[0]
+    for k_idx in range(NK):
+        block_id = int(block_id_list[k_idx].item())
+        start = int(block_first_position[k_idx].item())
+        for in_block in range(BS):
+            abs_t = block_id * BS + in_block  # equals original slot
+            pos = min(start + in_block, T_cal - 1)
+            for h in range(H):
+                k_ref, _ = _reference_quant(
+                    key[abs_t, h].to(torch.float32),
+                    k_scale.poles[h].to(torch.float32),
+                    k_scale.upper_threshold[h].to(torch.float32),
+                    k_scale.lower_threshold[h].to(torch.float32),
+                )
+                v_ref, _ = _reference_quant(
+                    value[abs_t, h].to(torch.float32),
+                    v_scale.poles[h, pos].to(torch.float32),
+                    v_scale.upper_threshold[h, pos].to(torch.float32),
+                    v_scale.lower_threshold[h, pos].to(torch.float32),
+                )
+                torch.testing.assert_close(
+                    staging_k[k_idx, in_block, h].float(),
+                    k_ref.float(), atol=1e-2, rtol=1e-2,
+                    msg=f"K mismatch at kept={k_idx} pos={in_block} h={h}",
+                )
+                torch.testing.assert_close(
+                    staging_v[k_idx, in_block, h].float(),
+                    v_ref.float(), atol=1e-2, rtol=1e-2,
+                    msg=f"V mismatch at kept={k_idx} pos={in_block} h={h}",
+                )
+
+
 def test_compact_pool_block_stats():
     """k_min/k_max per block must match the actual min/max of reconstructed K."""
     torch.manual_seed(1)
