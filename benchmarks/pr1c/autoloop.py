@@ -184,13 +184,14 @@ def main() -> int:
          lambda: _mix(SCALES_DIR / "qwen2_5_7b_1m_nuq2_v3.pt",
                       SCALES_DIR / "qwen2_5_7b_1m_nuq4_v3.pt", 16,
                       SCALES_DIR / "mixed_nuq2v3_nuq4v3_cut16.pt")),
+        ("mixed_v3_cut24", SCALES_DIR / "mixed_nuq2v3_nuq4v3_cut24.pt",
+         lambda: _mix(SCALES_DIR / "qwen2_5_7b_1m_nuq2_v3.pt",
+                      SCALES_DIR / "qwen2_5_7b_1m_nuq4_v3.pt", 24,
+                      SCALES_DIR / "mixed_nuq2v3_nuq4v3_cut24.pt")),
         ("nuq2_v4_ol08", SCALES_DIR / "qwen2_5_7b_1m_nuq2_v4_ol08.pt",
          lambda: _calib(SCALES_DIR / "qwen2_5_7b_1m_nuq2_v4_ol08.pt",
-                        num_bits=2, outlier_pct=0.08, seqlen=4096)),
-        ("nuq2_v5_lc", SCALES_DIR / "qwen2_5_7b_1m_nuq2_v5_lc16k.pt",
-         lambda: _calib(SCALES_DIR / "qwen2_5_7b_1m_nuq2_v5_lc16k.pt",
-                        num_bits=2, outlier_pct=0.05, seqlen=16384,
-                        num_prompts=8)),
+                        num_bits=2, outlier_pct=0.08, seqlen=4096,
+                        kmeans_subsample=3000)),
     ]
 
     found = None
