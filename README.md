@@ -17,6 +17,7 @@ Repo: https://github.com/xFuzzitx/helix-lite
 - [x] **PR5b** — KV-chunk transfer & hot/cold attention swap: validated cos 0.93-0.98 vs dense at hot=2K + top-M=8 (39%% of context loaded, 5M scales as O(hot + M·episode_len))
 - [x] **Release v0** — `helix-cli` ships the queryable model: vanilla AWQ at ≤128K and EM-RAG (segment + retrieve + answer) for longer docs
 - [x] **Eval v0** — multi-needle NIAH for both paths (numbers below; retrieval is the EM-RAG bottleneck at >32K)
+- [x] **Eval v0.1** — mid-layer indexer embeddings: 38%→75% @128K, 38%→62% @200K (+100% / +67%), no change to segmenter/pool/index
 
 ## Eval results (v0)
 
@@ -32,25 +33,37 @@ graded by exact substring match on the answer.
 
 **EM-RAG path** (segment + retrieve + answer):
 
-| ctx | episodes | top-M=16 | top-M=64 | retrieval bottleneck |
-|-----|----------|----------|----------|----------------------|
-| 32 K  | 202   | 2/8 (25%) | **6/8 (75%)** | 6/8 (needle in retrieved chunks) |
-| 128 K | 811   | 1/8 (12%) | 3/8 (38%)     | 4/8 |
-| 200 K | 1272  | 2/8 (25%) | 3/8 (38%)     | 3/8 |
+| ctx | episodes | top-M=64 last-layer (v0) | top-M=64 **mid-layer** (v0.1) |
+|-----|----------|--------------------------|-------------------------------|
+| 32 K  | 202   | 6/8 (75%)  | **7/8 (88%)** |
+| 128 K | 811   | 3/8 (38%)  | **6/8 (75%)** |
+| 200 K | 1272  | 3/8 (38%)  | **5/8 (62%)** |
 
-Honest read: at large episode counts (800+), max-abs-pooled hidden
-states from the indexer are not selective enough — top-M=64 only
-gives 5% selectivity at 1272 episodes, and that's not enough to
-catch sparse needles. The KV-level path (PR5b math, deferred vLLM
-integration) bypasses this — but the *text-level* path that ships
-in v0 plateaus around 32 K. Below that, vanilla AWQ is strictly
-better; above 128 K it's the only path that runs at all.
+v0 used the indexer's *last* layer hidden states (layer 28/28) as
+episode embeddings. The last layer is specialised for next-token
+prediction; its outputs are dominated by syntactic prediction
+signal, not the semantic content needed for retrieval. Switching
+to a *mid* layer (~layer 14/28) with the same max-abs pooling
+roughly doubles recall at 128K (38% → 75%) and pushes 200K from
+38% → 62%, without any change to the segmenter, pool function,
+or retrieval index.
+
+This is now the default (`EMRAGConfig.indexer_layer="mid"`).
+The KV-level path (PR5b math, deferred vLLM integration) bypasses
+the indexer entirely; the *text-level* path that ships still needs
+better query/episode embeddings beyond 200K, and that's the next
+direction (HyDE query expansion, cross-encoder re-rank).
 
 Reproduce:
 
 ```bash
+# Mid-layer default (v0.1)
 PYTHONPATH=src python benchmarks/quality/run_em_rag_multi_needle.py \
   --ctx 32000 128000 200000 --num-needles 8 --top-m 64
+
+# v0 baseline (last layer, for comparison)
+PYTHONPATH=src python benchmarks/quality/run_em_rag_multi_needle.py \
+  --ctx 32000 128000 200000 --num-needles 8 --top-m 64 --indexer-layer last
 ```
 
 Raw JSON in [`benchmarks/results/`](benchmarks/results/).

@@ -65,6 +65,10 @@ def phase_a_retrieve(args) -> Path:
         generator_model=args.generator,
         top_m=args.top_m,
         max_doc_tokens=args.max_doc_tokens,
+        pool=args.pool,
+        query_pool=args.query_pool,
+        pool_alpha=args.pool_alpha,
+        indexer_layer=args.indexer_layer,
     )
     grading_tok = AutoTokenizer.from_pretrained(args.generator)
 
@@ -72,6 +76,8 @@ def phase_a_retrieve(args) -> Path:
         "indexer": args.indexer, "generator": args.generator,
         "top_m": args.top_m, "num_needles": args.num_needles,
         "seed": args.seed, "max_tokens": args.max_tokens,
+        "pool": args.pool, "query_pool": args.query_pool,
+        "pool_alpha": args.pool_alpha, "indexer_layer": args.indexer_layer,
         "ctxs": [],
     }
 
@@ -168,7 +174,12 @@ def phase_b_generate(cache_path: Path, gmu: float) -> Path:
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     safe_topm = payload["top_m"]
-    out_path = RESULTS_DIR / f"em_rag_multi_needle_topm{safe_topm}_{ts}.json"
+    pool_tag = payload.get("pool", "max-abs").replace("+", "_")
+    layer_tag = payload.get("indexer_layer", "last")
+    out_path = (
+        RESULTS_DIR
+        / f"em_rag_multi_needle_topm{safe_topm}_pool-{pool_tag}_layer-{layer_tag}_{ts}.json"
+    )
     answers_payload["ts"] = ts
     out_path.write_text(json.dumps(answers_payload, indent=2))
     print(f"\n✓ saved {out_path}")
@@ -192,6 +203,17 @@ def main() -> None:
     p.add_argument("--gmu", type=float, default=0.85)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-tokens", type=int, default=64)
+    p.add_argument("--pool", default="max-abs",
+                   choices=["max-abs", "mean", "last", "mean+max"],
+                   help="episode embedding pooling (default: max-abs)")
+    p.add_argument("--query-pool", default="last",
+                   choices=["max-abs", "mean", "last", "mean+max"],
+                   help="question embedding pooling (default: last)")
+    p.add_argument("--pool-alpha", type=float, default=0.5,
+                   help="weight for max-abs term in 'mean+max' pool")
+    p.add_argument("--indexer-layer", default="mid",
+                   choices=["last", "mid", "multi-last4", "multi-mid4"],
+                   help="which layer's hidden state to use (default: mid)")
     p.add_argument("--phase", choices=["all", "a", "b"], default="all",
                    help="'all' = run A then re-exec B in subprocess; "
                         "'a' = only HF indexing+retrieval; "

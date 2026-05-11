@@ -58,8 +58,14 @@ class EMRAGConfig:
     min_seg: int = 128
     max_seg: int = 512
     top_m: int = 16
-    pool: str = "max-abs"           # episode pooling
-    query_pool: str = "last"        # question pooling
+    pool: str = "max-abs"           # "max-abs" | "mean" | "last" | "mean+max"
+    query_pool: str = "last"        # "max-abs" | "mean" | "last" | "mean+max"
+    pool_alpha: float = 0.5         # weight for max-abs term in "mean+max"
+    # Layer used for episode/query embeddings. Empirically (top-m=64 multi-needle NIAH,
+    # Qwen2.5-7B-1M), "mid" (~layer 14/28) gives 2× recall @128K vs "last" because the
+    # last layer is specialised for next-token prediction; mid-block hidden states carry
+    # the semantic content needed for retrieval. See README "Eval results".
+    indexer_layer: str = "mid"      # "last" | "mid" | "multi-last4" | "multi-mid4"
     chunk_size: int = 8192          # how many tokens of doc to forward at once
     max_doc_tokens: int = 200_000   # safety cap on indexed length
 
@@ -77,7 +83,7 @@ class EpisodeIndex:
     boundaries: list[int]
 
 
-def _pool_hidden(slab: torch.Tensor, mode: str) -> torch.Tensor:
+def _pool_hidden(slab: torch.Tensor, mode: str, alpha: float = 0.5) -> torch.Tensor:
     if mode == "mean":
         return slab.mean(dim=0)
     if mode == "last":
@@ -85,7 +91,36 @@ def _pool_hidden(slab: torch.Tensor, mode: str) -> torch.Tensor:
     if mode == "max-abs":
         idx = slab.abs().argmax(dim=0)
         return slab.gather(0, idx.unsqueeze(0)).squeeze(0)
+    if mode == "mean+max":
+        m = slab.mean(dim=0)
+        idx = slab.abs().argmax(dim=0)
+        x = slab.gather(0, idx.unsqueeze(0)).squeeze(0)
+        return m + alpha * x
     raise ValueError(f"unknown pool mode: {mode}")
+
+
+def _select_hidden_chunk(hidden_states: tuple, mode: str) -> torch.Tensor:
+    """Pick the hidden tensor (T, H) from a forward's hidden_states tuple.
+
+    ``hidden_states`` is ``(num_layers + 1)`` tensors of shape ``(1, T, H)``;
+    index 0 is the embedding output, indices 1..N are layer outputs.
+    """
+    if mode == "last":
+        return hidden_states[-1][0]
+    if mode == "mid":
+        return hidden_states[len(hidden_states) // 2][0]
+    if mode == "multi-last4":
+        stacked = torch.stack([hidden_states[-i][0] for i in (1, 2, 3, 4)], dim=0)
+        return stacked.mean(dim=0)
+    if mode == "multi-mid4":
+        mid = len(hidden_states) // 2
+        stacked = torch.stack(
+            [hidden_states[mid - 1][0], hidden_states[mid][0],
+             hidden_states[mid + 1][0], hidden_states[mid + 2][0]],
+            dim=0,
+        )
+        return stacked.mean(dim=0)
+    raise ValueError(f"unknown indexer_layer mode: {mode}")
 
 
 def _load_indexer(cfg: EMRAGConfig):
@@ -151,7 +186,7 @@ def build_index(document: str, cfg: EMRAGConfig | None = None,
         with torch.no_grad():
             out = model(chunk, output_hidden_states=True, use_cache=False)
         chunk_logits = out.logits[0]
-        chunk_hidden = out.hidden_states[-1][0]
+        chunk_hidden = _select_hidden_chunk(out.hidden_states, cfg.indexer_layer)
         # Walk per-token; close any segments that boundary out
         for i in range(chunk_logits.shape[0]):
             t = pos + i
@@ -163,7 +198,7 @@ def build_index(document: str, cfg: EMRAGConfig | None = None,
                     last_hidden_chunks + [chunk_hidden],
                     seg_start, b.position, base_offset=pos,
                 )
-                emb = _pool_hidden(global_slab, cfg.pool)
+                emb = _pool_hidden(global_slab, cfg.pool, cfg.pool_alpha)
                 ep = store.add(emb, (seg_start, b.position))
                 # We do NOT store KV here - the text-level RAG pass
                 # uses the AWQ generator separately. KV-level swap
@@ -240,7 +275,8 @@ def retrieve_episode_texts(
     q_ids = tokenizer.encode(question, return_tensors="pt").to(cfg.indexer_device)
     with torch.no_grad():
         q_out = model(q_ids, output_hidden_states=True, use_cache=False)
-    q_emb = _pool_hidden(q_out.hidden_states[-1][0], cfg.query_pool)
+    q_hidden = _select_hidden_chunk(q_out.hidden_states, cfg.indexer_layer)
+    q_emb = _pool_hidden(q_hidden, cfg.query_pool, cfg.pool_alpha)
     if owns_model:
         del model
         torch.cuda.empty_cache()
